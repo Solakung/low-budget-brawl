@@ -313,8 +313,8 @@ function nextRound() {
 }
 
 const GROUND_Y = 300;
-const GRAVITY = 0.7;
-const JUMP_FORCE = -14;
+const GRAVITY = 0.95;
+const JUMP_FORCE = -19;
 const JUMP_HFORCE = 4.2;      // ความเร็วแนวนอนตอนกระโดดหน้า/หลัง
 const WALK_SPEED = 4.2;
 const DASH_SPEED = 11;
@@ -1848,6 +1848,12 @@ function handleLocalMovement(p) {
 
     const freeToMove = p.state === "idle" || p.state === "walk" || p.state === "crouch";
 
+    // เดิมท่าโจมตี "ธรรมดา" (ไม่ใช่ dash move อย่าง Sword Lunge/ซุปเปอร์ที่พุ่งตัว) จะล็อกการเดินทั้งอนิเมชัน
+    // ทั้งที่จริงๆ ฮิตจบไปแล้วตั้งแต่ช่วง active — พอเข้าสู่ช่วง Recovery (เก็บท่า) ให้เริ่มเดินต่อได้เลย
+    // แค่ช้าลงกว่าปกติ (ยังมีความเสี่ยงโดนสวนอยู่ แต่ไม่ถึงกับหยุดนิ่งสนิททั้งท่า) ทำให้ควบคุมลื่นขึ้น
+    const inRecoveryWalk = p.state === "attack" && p.action && p.action.phase === "recovery" && !p.action.dashMove;
+    const canWalk = freeToMove || inRecoveryWalk;
+
     // ย่อตัว (Crouch)
     if (keys.s && p.grounded && freeToMove) {
         p.crouching = true;
@@ -1860,9 +1866,10 @@ function handleLocalMovement(p) {
     if (p.state === "dash") {
         if (now > p.dashUntil) { p.state = "idle"; p.vx = 0; }
         else { p.x += p.vx; }
-    } else if (freeToMove && !p.crouching && p.grounded) {
-        if (keys.a) { p.x -= walkSpeed; p.state = "walk"; }
-        else if (keys.d) { p.x += walkSpeed; p.state = "walk"; }
+    } else if (canWalk && !p.crouching && p.grounded) {
+        const speed = freeToMove ? walkSpeed : walkSpeed * 0.6; // ช่วง Recovery เดินได้แต่ช้าลง
+        if (keys.a) { p.x -= speed; if (freeToMove) p.state = "walk"; }
+        else if (keys.d) { p.x += speed; if (freeToMove) p.state = "walk"; }
         else if (p.state === "walk") { p.state = "idle"; }
     }
 
