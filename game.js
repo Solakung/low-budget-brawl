@@ -847,10 +847,27 @@ function startDash(p, dir) {
 // --- 5a. ลอจิกของ Bot ---
 function runBotAI() {
     const p = p2, opp = p1;
-    if (p.state === "hitstun" || p.state === "blockstun" || p.state === "knockdown" || p.state === "attack" || p.state === "throw") {
+    if (p.state === "hitstun" || p.state === "blockstun" || p.state === "knockdown" || p.state === "throw") {
         return;
     }
     const char = getChar(p);
+
+    // Cancel: ถ้าเพิ่งตีท่าเบา/กลางโดนแล้วยังอยู่ในหน้าต่าง Cancel บอทมีโอกาสแทรกท่าพิเศษ/ซุปเปอร์ต่อ
+    if (p.state === "attack") {
+        const inCancelWindow = Date.now() < (p.cancelWindowUntil || 0);
+        if (!inCancelWindow) return;
+        const roll = Math.random();
+        if (roll < 0.55 && (p.super || 0) >= MAX_METER) {
+            trySuper(p);
+        } else if (roll < 0.85) {
+            if (char.hasCommandGrab) tryCommandGrab(p);
+            else if (char.hasSwordLunge) trySwordLunge(p);
+            else tryProjectile(p);
+        }
+        // roll >= 0.85: ปล่อยผ่าน ไม่แทรกท่า ให้ท่าเดิม recovery จบไปตามปกติ (กันบอทกดคอมโบทุกครั้งจนดูเป็นหุ่นยนต์เกินไป)
+        return;
+    }
+
     const botWalkSpeed = (char.walkSpeed || WALK_SPEED) * 0.62;
     const dx = opp.x - p.x;
     const dist = Math.abs(dx);
