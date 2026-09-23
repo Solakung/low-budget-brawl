@@ -278,6 +278,28 @@ function drawTauntPopup(now) {
     });
 }
 
+function drawRoundIntro(now) {
+    if (now >= introUntil) return;
+    const remaining = introUntil - now;
+    const inFightPhase = remaining <= INTRO_FIGHT_MS;
+    const phaseElapsed = inFightPhase ? (INTRO_FIGHT_MS - remaining) : (INTRO_MS - remaining);
+    const t = Math.min(1, phaseElapsed / 160); // ป็อปเข้ามาเร็วๆ ตอนเริ่มแต่ละเฟส
+    const scale = 0.5 + t * 0.6;
+    const text = inFightPhase ? "FIGHT!" : `ROUND ${currentRound}`;
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2 - 30);
+    ctx.scale(scale, scale);
+    ctx.font = "bold 52px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = inFightPhase ? "#ff3300" : "#00ccff";
+    ctx.lineWidth = 6;
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = "#ffff00";
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+}
+
 // --- 2c. ระบบยก (Best of 3) และตัวจับเวลา ---
 const ROUND_TIME = 99;
 let roundWins = { p1: 0, p2: 0 };
@@ -285,13 +307,21 @@ let currentRound = 1;
 let roundTimeLeft = ROUND_TIME;
 let roundTimerHandle = null;
 
+// --- Intro Freeze: ค้างจอ "ROUND X" -> "FIGHT!" ไว้สั้นๆ ก่อนเริ่มยก
+// กันปัญหาเสียงประกาศ (SpeechSynthesis) พูดไม่ทันเพราะเกมเริ่มขยับไปก่อนแล้ว ---
+const INTRO_ROUND_MS = 700;
+const INTRO_FIGHT_MS = 650;
+const INTRO_MS = INTRO_ROUND_MS + INTRO_FIGHT_MS;
+let introUntil = 0;
+
 function startRoundTimer() {
     roundTimeLeft = ROUND_TIME;
     updateTimerUI();
     announce(`Round ${currentRound}! Fight!`);
+    introUntil = Date.now() + INTRO_MS;
     clearInterval(roundTimerHandle);
     roundTimerHandle = setInterval(() => {
-        if (gameOver) return;
+        if (gameOver || Date.now() < introUntil) return; // ยังอยู่ช่วง Round/Fight freeze ไม่นับถอยหลัง
         roundTimeLeft -= 1;
         updateTimerUI();
         if (roundTimeLeft <= 0) {
@@ -973,7 +1003,7 @@ function joinRoom() {
 
 // --- 5. ระบบท่าโจมตี / สถานะการกระทำ ---
 function canAct(p) {
-    return !!p && !gameOver && p.grounded && (p.state === "idle" || p.state === "walk" || p.state === "crouch");
+    return !!p && !gameOver && Date.now() >= introUntil && p.grounded && (p.state === "idle" || p.state === "walk" || p.state === "crouch");
 }
 
 // ใช้เฉพาะท่าพิเศษ/ซุปเปอร์: ให้แทรกเข้าไปได้ทันทีถ้ายังอยู่ในหน้าต่าง Cancel
@@ -2122,6 +2152,7 @@ function render(now) {
     drawThrowTechPopup(now);
     drawTauntPopup(now);
     drawKOOverlay(now);
+    drawRoundIntro(now);
 
     ctx.restore();
 }
@@ -2135,7 +2166,7 @@ function update() {
         endRound(koWinner);
     }
 
-    if (!gameOver && now >= hitStopUntil) {
+    if (!gameOver && now >= hitStopUntil && now >= introUntil) {
         updateFacing(p1, p2);
         updateFacing(p2, p1);
 
