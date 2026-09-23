@@ -11,6 +11,7 @@
 </head>
 <body>
     <button id="sound-toggle" onclick="toggleSound()">🔊</button>
+    <button id="taunt-btn" onclick="doTaunt()" style="display:none;" title="ยั่ว (T)">😏</button>
     <div id="ui-layer">
         <h1>LOW BUDGET BRAWL</h1>
 
@@ -33,6 +34,9 @@
                 </button>
                 <button class="char-card" data-char="bruiser" style="border-color:#ff00aa" onclick="selectCharacter('bruiser')">
                     🤜<br>นักซัด<br><span class="char-sub">"มาเจนต้า"</span>
+                </button>
+                <button class="char-card" data-char="mage" style="border-color:#cc66ff" onclick="selectCharacter('mage')">
+                    🦋<br>นักเวท<br><span class="char-sub">"ผีเสื้อ"</span>
                 </button>
             </div>
         </div>
@@ -87,8 +91,9 @@
         <b>พุ่งตัว:</b> แตะ A หรือ D สองครั้งเร็วๆ<br>
         <b>หมัด:</b> เบา U / กลาง I / หนัก O &nbsp; <b>เตะ:</b> เบา J / กลาง K / หนัก L
         (ย่อ+เตะหนัก = กวาดขาล้ม) &nbsp; <b>ทุ่ม:</b> Space<br>
-        <b>ท่าพิเศษ:</b> E (ยืน = ปล่อยพลัง/จับทุ่มทะลุบล็อกแล้วแต่ตัวละคร / ย่อ = สวนกลางอากาศ) &nbsp;
-        <b>ซุปเปอร์:</b> Q (ต้องเกจเต็ม — แต่ละตัวมีท่าซุปเปอร์ไม่เหมือนกัน) &nbsp; <b>บล็อก:</b> เดินถอยหลัง (หันหลังให้คู่ต่อสู้)<br>
+        <b>ท่าพิเศษ:</b> E (ยืน = ปล่อยพลัง/จับทุ่มทะลุบล็อก/วาร์ปหลบ แล้วแต่ตัวละคร / ย่อ = สวนกลางอากาศ) &nbsp;
+        <b>ซุปเปอร์:</b> Q (ต้องเกจเต็ม — แต่ละตัวมีท่าซุปเปอร์ไม่เหมือนกัน) &nbsp; <b>บล็อก:</b> เดินถอยหลัง (หันหลังให้คู่ต่อสู้) &nbsp;
+        <b>ยั่ว:</b> T (บล็อกไม่ได้ระหว่างทำท่า เสี่ยงโดนตีฟรี แลกเกจพลัง)<br>
         <b>โจมตีกลางอากาศ:</b> กระโดดแล้วกดปุ่มหมัด/เตะ (U/I/O/J/K/L) — ใช้ได้ 1 ครั้งต่อการกระโดด 1 เที่ยว<br>
         <b>Parry:</b> กดบล็อก (ถอยหลัง) ให้ทันจังหวะแรกที่โดนตี = สวนฟรี ไม่เสียเลือดเลย &nbsp;
         <b>ตอนล้ม:</b> ไม่กดอะไร = ลุกปกติ / กดถอยหลัง = ลุกกลิ้งหนี / กดปุ่มหมัด-เตะ = ลุกสวนทันที (มีอินวัลน์สั้นๆ)
@@ -97,6 +102,7 @@
     <!-- จอแพ้/ชนะ -->
     <div id="round-over" style="display:none;">
         <div id="winner-text">P1 ชนะ!</div>
+        <div id="winner-quote"></div>
         <div>
             <button id="next-round-btn" onclick="nextRound()">ยกต่อไป ▶</button>
             <button id="restart-btn" onclick="location.reload()">เล่นใหม่ทั้งหมด 🔁</button>

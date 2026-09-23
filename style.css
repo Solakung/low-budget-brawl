@@ -254,6 +254,15 @@ input {
     text-align: center;
 }
 
+#winner-quote {
+    font-size: 1rem;
+    font-style: italic;
+    color: #00ccff;
+    max-width: 85vw;
+    text-align: center;
+    min-height: 1.2em;
+}
+
 #sound-toggle {
     position: fixed;
     top: 10px;
@@ -264,6 +273,26 @@ input {
     padding: 0;
     border-radius: 50%;
     font-size: 18px;
+}
+
+/* ปุ่มยั่ว: วางไว้กึ่งกลางด้านบนใต้ตัวจับเวลายก กันไม่ให้ทับหลอดเลือด HP ที่อยู่มุมซ้าย-ขวา */
+#taunt-btn {
+    position: fixed;
+    top: 66px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 15px;
+    opacity: 0.85;
+    border-color: #ffcc00;
+}
+
+@media (max-width: 700px) {
+    #taunt-btn { top: 56px; width: 32px; height: 32px; font-size: 13px; }
 }
 
 /* ------------------- ปุ่มควบคุมบนจอ (มือถือ) ------------------- */

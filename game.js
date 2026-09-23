@@ -81,6 +81,14 @@ const sfx = {
     block() { playBeep(220, 0.06, "square", 0.08, 180); },
     jump() { playBeep(300, 0.09, "square", 0.08, 500); },
     dash() { playBeep(500, 0.06, "square", 0.06, 700); },
+    teleport() {
+        playBeep(700, 0.1, "sine", 0.1, 1400);
+        playBeep(350, 0.14, "sine", 0.08, 900);
+    },
+    taunt() {
+        playBeep(300, 0.08, "sawtooth", 0.1, 500);
+        setTimeout(() => playBeep(500, 0.1, "sawtooth", 0.1, 800), 90);
+    },
     special() { playBeep(200, 0.18, "sawtooth", 0.12, 700); },
     super() {
         playNoiseBurst(0.3, 0.25);
@@ -126,7 +134,23 @@ function toggleSound() {
     audioMuted = !audioMuted;
     const btn = document.getElementById("sound-toggle");
     if (btn) btn.innerText = audioMuted ? "🔇" : "🔊";
-    if (audioMuted) stopBGM(); else if (gameMode) startBGM();
+    if (audioMuted) { stopBGM(); window.speechSynthesis && window.speechSynthesis.cancel(); }
+    else if (gameMode) startBGM();
+}
+
+// --- 2a-2. Announcer: ใช้ SpeechSynthesis ของเบราว์เซอร์ฟรี ไม่ต้องโหลดไฟล์เสียงเพิ่ม (สไตล์ประกาศเกมตู้) ---
+function announce(text) {
+    if (audioMuted) return;
+    if (!("speechSynthesis" in window)) return;
+    try {
+        window.speechSynthesis.cancel(); // กันเสียงซ้อนถ้าพูดยังไม่ทันจบ
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US";
+        u.rate = 1.05;
+        u.pitch = 0.7;
+        u.volume = 0.9;
+        window.speechSynthesis.speak(u);
+    } catch (e) { /* บาง browser/มือถือไม่รองรับ ปล่อยผ่านเงียบๆ */ }
 }
 
 // --- 2b. Hit Stop (หยุดเฟรม) / Screen Shake (จอแกว่ง) / Hit Sparks (เอฟเฟกต์อนุภาค) ---
@@ -233,6 +257,27 @@ function drawThrowTechPopup(now) {
     ctx.restore();
 }
 
+function drawTauntPopup(now) {
+    [p1, p2].forEach(p => {
+        if (!p.tauntPopupUntil || now > p.tauntPopupUntil || !p.tauntText) return;
+        const char = getChar(p);
+        const remaining = p.tauntPopupUntil - now;
+        const alpha = Math.max(0, Math.min(1, remaining / 300)); // จางลงในช่วง 300ms สุดท้าย
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = "bold 13px 'Courier New', monospace";
+        ctx.textAlign = "center";
+        const x = p.x + p.width / 2;
+        const y = p.y - 44;
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 3;
+        ctx.strokeText(p.tauntText, x, y);
+        ctx.fillStyle = char.accent;
+        ctx.fillText(p.tauntText, x, y);
+        ctx.restore();
+    });
+}
+
 // --- 2c. ระบบยก (Best of 3) และตัวจับเวลา ---
 const ROUND_TIME = 99;
 let roundWins = { p1: 0, p2: 0 };
@@ -243,6 +288,7 @@ let roundTimerHandle = null;
 function startRoundTimer() {
     roundTimeLeft = ROUND_TIME;
     updateTimerUI();
+    announce(`Round ${currentRound}! Fight!`);
     clearInterval(roundTimerHandle);
     roundTimerHandle = setInterval(() => {
         if (gameOver) return;
@@ -292,6 +338,7 @@ function triggerKO(winner) {
     const loser = winner ? opponentOf(winner) : p1;
     spawnHitSparks(loser.x + loser.width / 2, loser.y + loser.height * 0.4, "#ffdd00", 16);
     sfx.ko();
+    announce("K.O.!");
 }
 
 function resetRoundState() {
@@ -368,6 +415,9 @@ const CHARACTERS = [
         // หมัดหนักมี Super Armor (ทนโดนท่าเบา 1 ฮิตแล้วชกต่อได้ ไม่ติด Hitstun),
         // Super "Haymaker" หมัดเดียวจบพุ่งเข้าประชิด ดาเมจสูงสุดในบรรดาซุปเปอร์ปกติ
         id: "boxer", name: "นักชก \"หมัดไฟ\"", color: "#ffff00", accent: "#ff3300", hasSword: false,
+        altColor: "#ff9900", altAccent: "#ffffff",
+        tauntLines: ["มาเลย! หมัดไฟยังไม่ปล่อยของจริงด้วยซ้ำ!", "ยืนนิ่งขนาดนี้ เดี๋ยวโดนน็อกไม่รู้ตัวนะ"],
+        winLines: ["หมัดไฟยังไม่มีใครดับได้!", "แค่ชกไม่กี่ทีก็จบแล้ว"],
         punchDmg: 8, punchRange: 45,
         kickDmg: 14, kickRange: 55,
         projectileDmg: 10, superDmg: 30,
@@ -380,6 +430,9 @@ const CHARACTERS = [
         // เดิน/พุ่งตัว/โปรเจกไทล์เร็วกว่าตัวอื่น,
         // Super "Thunder Barrage" เตะรัว 4 ฮิตติดกัน จบด้วยล้ม
         id: "kicker", name: "นักเตะ \"สายฟ้า\"", color: "#00ccff", accent: "#ffffff", hasSword: false,
+        altColor: "#3366ff", altAccent: "#ffff00",
+        tauntLines: ["ช้าจัง ตามไม่ทันหรอกน่า!", "เก็บแรงไว้เท่าไหร่ก็ไม่พอหรอก"],
+        winLines: ["เร็วเกินไปสำหรับนายจริงๆ", "สายฟ้าไม่เคยรอใคร"],
         punchDmg: 6, punchRange: 40,
         kickDmg: 18, kickRange: 72,
         projectileDmg: 9, superDmg: 28,
@@ -392,6 +445,9 @@ const CHARACTERS = [
         // ท่าพิเศษยืน = พุ่งฟันดาบระยะไกลแทนปล่อยพลัง (Sword Lunge),
         // Super "Iaido" ชักดาบฟันระยะไกลสุด ดาเมจสูง แลกกับสตาร์ทอัพช้าที่สุด
         id: "swordsman", name: "นักดาบ \"จอมคม\"", color: "#ff66ff", accent: "#ffff00", hasSword: true,
+        altColor: "#9933ff", altAccent: "#00ffcc",
+        tauntLines: ["ดาบเล่มนี้ยังไม่ได้ขยับจริงจังเลยนะ", "ท่าทางนายยังไม่พร้อมเจอของจริง"],
+        winLines: ["คมกริบ ไร้ที่ติ", "จบด้วยคมดาบเดียว พอแล้ว"],
         punchDmg: 11, punchRange: 72,
         kickDmg: 10, kickRange: 50,
         projectileDmg: 12, superDmg: 32,
@@ -404,6 +460,9 @@ const CHARACTERS = [
         // เบาแต่เร็ว, โจมตีเบา "Plus on block" กดต่อได้, ทุ่มแล้วเด้งไกล,
         // Spark Kunai (โปรเจกไทล์) เร็วแรงแต่ดาเมจน้อย, Super "Lightning Flurry" พุ่งเข้าใส่รัวหมัด
         id: "assassin", name: "นักฆ่า \"ไซแอน\"", color: "#00ffff", accent: "#ff2266", hasSword: false,
+        altColor: "#33ff99", altAccent: "#ffffff",
+        tauntLines: ["อยู่ตรงนั้นแหละ เดี๋ยวไปหาเอง", "หนีไม่พ้นหรอก รู้ตัวไหม"],
+        winLines: ["จบง่ายกว่าที่คิดอีก", "เงาไม่เคยพลาดเป้า"],
         punchDmg: 7, punchRange: 42,
         kickDmg: 9, kickRange: 46,
         projectileDmg: 5, superDmg: 34,
@@ -419,6 +478,9 @@ const CHARACTERS = [
         // Titan Dash (พุ่งชนตอน Dash) มี Super Armor กันโดนโจมตีเบา 1 ฮิต,
         // Super "Earthquake Piledriver" จับทุ่มทะลุบล็อก ดาเมจมหาศาล
         id: "bruiser", name: "นักซัด \"มาเจนต้า\"", color: "#ff00aa", accent: "#ffcc00", hasSword: false,
+        altColor: "#ffaa00", altAccent: "#ff0055",
+        tauntLines: ["แค่นี้เอาไม่อยู่แล้วเหรอ?", "มาเลย ข้ายังไม่ออกแรงจริงด้วยซ้ำ"],
+        winLines: ["กล้ามนี้ไม่มีคำว่าพ่ายแพ้", "หนักแค่ไหนก็ต้องล้ม"],
         punchDmg: 13, punchRange: 78,
         kickDmg: 12, kickRange: 60,
         projectileDmg: 0, superDmg: 40,
@@ -426,10 +488,33 @@ const CHARACTERS = [
         walkSpeed: WALK_SPEED * 0.7, dashSpeed: DASH_SPEED * 0.75, jumpForce: JUMP_FORCE * 0.8,
         hasCommandGrab: true, hasSuperArmor: true, slowThrow: true,
         superType: "grab"
+    },
+    {
+        // --- Purple Mage/Butterfly: สาย Teleport-Zoner ---
+        // HP ต่ำสุดในเกม แลกกับท่าพิเศษยืน = วาร์ปสั้นๆ (แทนโปรเจกไทล์) มีอินวัลน์เต็มระหว่างวาร์ป
+        // หลบได้ทั้งท่าโจมตีแนวสูง/แนวราบ/โปรเจกไทล์ เหมาะกับสายจับผิดจังหวะ/หลอกล่อ
+        // Super "Phantom Slash" ฟันภาพลวงตา 2 ฮิตติดกัน ระยะไกลกว่าซุปเปอร์ตัวอื่น
+        id: "mage", name: "นักเวท \"ผีเสื้อ\"", color: "#cc66ff", accent: "#ff99ff", hasSword: false,
+        altColor: "#ff6699", altAccent: "#ccffff",
+        tauntLines: ["จับฉันให้ได้ก่อนสิ~", "อยู่ตรงนี้ อยู่ตรงนั้น งงมั้ยล่ะ?"],
+        winLines: ["ปีกผีเสื้อพาไปได้ไกลกว่าที่คิด", "มายากลไม่เคยหลอกใคร... เกินจริง"],
+        punchDmg: 6, punchRange: 44,
+        kickDmg: 7, kickRange: 48,
+        projectileDmg: 0, superDmg: 26,
+        hp: 65,
+        walkSpeed: WALK_SPEED * 0.9, jumpForce: JUMP_FORCE * 1.05,
+        hasTeleport: true, hasWings: true,
+        superType: "phantom"
     }
 ];
 function getChar(p) {
-    return CHARACTERS.find(c => c.id === p.character) || CHARACTERS[0];
+    const base = CHARACTERS.find(c => c.id === p.character) || CHARACTERS[0];
+    // Palette Swap: ถ้าเป็น Mirror Match (P2 เลือกตัวเดียวกับ P1) ให้ P2 ใช้สีสำรองอัตโนมัติ
+    // กันสีตัวละครซ้อนทับกันดูสับสนตอนสองคนเลือกตัวเดียวกัน
+    if (p === p2 && p1 && p1.character === p2.character && base.altColor) {
+        return Object.assign({}, base, { color: base.altColor, accent: base.altAccent || base.accent });
+    }
+    return base;
 }
 
 let selectedCharacterId = "boxer";
@@ -523,6 +608,21 @@ function drawCharPreview(charId) {
         pctx.moveTo(cx + 10, hipY + 4);
         pctx.lineTo(cx + 27, hipY - 32);
         pctx.stroke();
+    }
+
+    // ปีกผีเสื้อสำหรับนักเวท
+    if (char.hasWings) {
+        const flap = Math.sin(previewT * 1.4) * 4;
+        pctx.save();
+        pctx.globalAlpha = 0.6;
+        pctx.fillStyle = char.accent;
+        pctx.beginPath();
+        pctx.ellipse(cx - 9, shoulderY - 2, 16, 10 + flap, Math.PI / 5, 0, Math.PI * 2);
+        pctx.fill();
+        pctx.beginPath();
+        pctx.ellipse(cx - 9, shoulderY + 14, 13, 8 + flap * 0.6, -Math.PI / 6, 0, Math.PI * 2);
+        pctx.fill();
+        pctx.restore();
     }
 }
 
@@ -642,7 +742,7 @@ function freshPlayer(x, character, facing) {
         lastTapLeft: 0, lastTapRight: 0, projectile: null, projectileCooldownUntil: 0,
         facing, legPhase: 0, prevX: x, isMoving: false,
         comboCount: 0, comboPopupUntil: 0, comboPopupBorn: 0, armorHitsLeft: 0,
-        airActionUsed: false
+        airActionUsed: false, tauntText: "", tauntPopupUntil: 0
     };
 }
 
@@ -678,6 +778,7 @@ window.addEventListener("keydown", (e) => {
         case "KeyL": doAttack("kick", "heavy"); break;
         case "KeyE": doSpecial(); break;
         case "KeyQ": doSuper(); break;
+        case "KeyT": doTaunt(); break;
     }
 });
 
@@ -759,6 +860,8 @@ function startGame(mode) {
     document.getElementById("canvas-wrap").style.display = "flex";
     document.getElementById("controls").style.display = "block";
     document.getElementById("hud").style.display = "flex";
+    const tauntBtn = document.getElementById("taunt-btn");
+    if (tauntBtn) tauntBtn.style.display = "flex";
     document.body.classList.add("playing"); // ล็อกการเลื่อนจอตอนเริ่มเล่นจริง กันมือไปโดนเลื่อนจอกลางไฟต์
 
     if (mode === "bot") {
@@ -1088,6 +1191,50 @@ function trySwordLunge(p) {
     p.vx = p.facing * 9;
     sfx.special();
 }
+// -- Teleport (เฉพาะตัวละครที่ hasTeleport): วาร์ปสั้นๆ แทนโปรเจกไทล์ อินวัลน์เต็มระหว่างวาร์ป
+// หลบได้ทั้งท่าโจมตีแนวสูง/แนวราบ/โปรเจกไทล์ เพราะฮิตบ็อกซ์เดิมหายไปทั้งตัวทันที ---
+const TELEPORT_TIMING = { startup: 70, active: 60, recovery: 260 };
+const TELEPORT_DISTANCE = 150;
+function tryTeleport(p) {
+    if (!canActOrCancel(p)) return;
+    const now = Date.now();
+    const char = getChar(p);
+    // เดินหน้า(หรือไม่กดทิศ) = วาร์ปเข้าหา, กดถอยหลัง(ท่าบล็อก) = วาร์ปหนีออกห่าง
+    const dir = p.holdingBack ? -p.facing : p.facing;
+    const fromX = p.x;
+    let toX = p.x + dir * TELEPORT_DISTANCE;
+    toX = Math.max(0, Math.min(canvas.width - p.width, toX));
+    beginAction(p, {
+        id: "teleport", type: "special", isLow: false, knockdown: false,
+        dmg: 0, range: -1, noHit: true,
+        hitstunMs: 0, blockstunMs: 0, meterGain: 6
+    }, TELEPORT_TIMING);
+    p.invulnUntil = now + TELEPORT_TIMING.startup + TELEPORT_TIMING.active;
+    p.x = toX;
+    spawnHitSparks(fromX + p.width / 2, p.y - 14, char.accent, 9);
+    spawnHitSparks(toX + p.width / 2, p.y - 14, char.accent, 9);
+    gainMeter(p, 6);
+    sfx.teleport();
+}
+// -- Taunt (ยั่วคู่ต่อสู้): เสี่ยงโดนตีฟรีเพราะบล็อกไม่ได้ระหว่างทำท่า แลกกับเกจพลังที่ได้ทันที ---
+const TAUNT_TIMING = { startup: 100, active: 550, recovery: 250 };
+const TAUNT_METER_GAIN = 18;
+function tryTaunt(p) {
+    if (!canAct(p)) return; // ยั่วได้เฉพาะตอนว่างๆ ไม่แทรกกลางท่าอื่น
+    const char = getChar(p);
+    beginAction(p, {
+        id: "taunt", type: "taunt", isLow: false, knockdown: false,
+        dmg: 0, range: -1, noHit: true,
+        hitstunMs: 0, blockstunMs: 0, meterGain: 0
+    }, TAUNT_TIMING);
+    const lines = char.tauntLines || ["ยั่วเล่นๆ!"];
+    p.tauntText = lines[Math.floor(Math.random() * lines.length)];
+    p.tauntPopupUntil = Date.now() + TAUNT_TIMING.startup + TAUNT_TIMING.active + 300;
+    gainMeter(p, TAUNT_METER_GAIN);
+    sfx.taunt();
+}
+function doTaunt() { tryTaunt(localPlayer()); }
+
 function tryProjectile(p) {
     const now = Date.now();
     if (!canActOrCancel(p) || now < (p.projectileCooldownUntil || 0)) return;
@@ -1105,6 +1252,7 @@ function doSpecial() {
     if (!p) return;
     const char = getChar(p);
     if (p.crouching) { tryAntiAir(p); return; }
+    if (char.hasTeleport) { tryTeleport(p); return; }
     if (char.hasCommandGrab) { tryCommandGrab(p); return; }
     if (char.hasSwordLunge) { trySwordLunge(p); return; }
     tryProjectile(p);
@@ -1170,6 +1318,13 @@ function trySuper(p) {
         def.dashMove = true;
         timing = { startup: 300, active: 160, recovery: 520 };
         p.vx = p.facing * 12;
+    } else if (char.superType === "phantom") {
+        // Phantom Slash: ภาพลวงตาฟันรัว 2 ครั้งอยู่กับที่ ระยะไกลกว่าท่าไม้ตายตัวอื่น
+        def.range = 95;
+        def.hits = 2;
+        def.hitInterval = 150;
+        def.dmg = Math.round(char.superDmg / 2);
+        timing = { startup: 130, active: 320, recovery: 440 };
     }
 
     beginAction(p, def, timing);
@@ -1234,6 +1389,7 @@ function runBotAI() {
         } else if (roll < 0.85) {
             if (char.hasCommandGrab) tryCommandGrab(p);
             else if (char.hasSwordLunge) trySwordLunge(p);
+            else if (char.hasTeleport) tryTeleport(p);
             else tryProjectile(p);
         }
         // roll >= 0.85: ปล่อยผ่าน ไม่แทรกท่า ให้ท่าเดิม recovery จบไปตามปกติ (กันบอทกดคอมโบทุกครั้งจนดูเป็นหุ่นยนต์เกินไป)
@@ -1290,6 +1446,7 @@ function resolveAttackAgainst(attacker, defender) {
     const hitsDone = attacker.action.hitsDone || 0;
     if (attacker.action.phase !== "active" || hitsDone >= maxHits) return;
     if (attacker.action.spawnsProjectile) return;
+    if (attacker.action.noHit) return;
     const now = Date.now();
     if (now < (attacker.action.nextHitAt || 0)) return; // ท่าหลายฮิต (เช่น Barrage/Flurry) ต้องเว้นจังหวะระหว่างฮิต
     if (now < (defender.invulnUntil || 0)) return;
@@ -1523,9 +1680,11 @@ function handleOpponentDisconnect() {
     stopRoundTimer();
     stopBGM();
     const winnerText = document.getElementById("winner-text");
+    const winnerQuote = document.getElementById("winner-quote");
     const nextBtn = document.getElementById("next-round-btn");
     const restartBtn = document.getElementById("restart-btn");
     if (winnerText) winnerText.innerText = "อีกฝ่ายหลุดการเชื่อมต่อ 🔌";
+    if (winnerQuote) winnerQuote.innerText = "";
     if (nextBtn) nextBtn.style.display = "none";
     if (restartBtn) restartBtn.style.display = "inline-block";
     const overlay = document.getElementById("round-over");
@@ -1560,6 +1719,7 @@ function endRound(winner) {
 
     const matchWinner = roundWins.p1 >= 2 ? p1 : (roundWins.p2 >= 2 ? p2 : null);
     const winnerText = document.getElementById("winner-text");
+    const winnerQuote = document.getElementById("winner-quote");
     const nextBtn = document.getElementById("next-round-btn");
     const restartBtn = document.getElementById("restart-btn");
 
@@ -1567,6 +1727,10 @@ function endRound(winner) {
         const wChar = getChar(matchWinner);
         const label = matchWinner === p1 ? "P1" : "P2";
         winnerText.innerText = `${label} (${wChar.name}) ชนะการแข่งขัน! 🏆 (${roundWins.p1}-${roundWins.p2})`;
+        if (winnerQuote) {
+            const lines = wChar.winLines || [];
+            winnerQuote.innerText = lines.length ? `"${lines[Math.floor(Math.random() * lines.length)]}"` : "";
+        }
         if (nextBtn) nextBtn.style.display = "none";
         if (restartBtn) restartBtn.style.display = "inline-block";
         sfx.roundWin();
@@ -1574,11 +1738,16 @@ function endRound(winner) {
         const wChar = getChar(winner);
         const label = winner === p1 ? "P1" : "P2";
         winnerText.innerText = `${label} (${wChar.name}) ชนะยกที่ ${currentRound}! (${roundWins.p1}-${roundWins.p2})`;
+        if (winnerQuote) {
+            const lines = wChar.winLines || [];
+            winnerQuote.innerText = lines.length ? `"${lines[Math.floor(Math.random() * lines.length)]}"` : "";
+        }
         if (nextBtn) nextBtn.style.display = "inline-block";
         if (restartBtn) restartBtn.style.display = "inline-block";
         sfx.roundWin();
     } else {
         winnerText.innerText = `หมดเวลา - เสมอ! (${roundWins.p1}-${roundWins.p2})`;
+        if (winnerQuote) winnerQuote.innerText = "";
         if (nextBtn) nextBtn.style.display = "inline-block";
         if (restartBtn) restartBtn.style.display = "inline-block";
         sfx.roundDraw();
@@ -1627,8 +1796,9 @@ function drawFighter(p, opp) {
     const isSweep = p.state === "attack" && a && a.id === "sweep";
     const isDashAttack = p.state === "attack" && a && (a.id === "dashAttack" || a.id === "haymaker" || a.id === "iaido" || a.id === "swordLunge" || a.id === "flurry");
     const isThrowing = p.state === "throw";
-    const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super" || a.id === "barrage");
+    const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super" || a.id === "barrage" || a.id === "teleport" || a.id === "phantom");
     const isVictory = p.state === "victory";
+    const isTaunting = p.state === "attack" && a && a.type === "taunt";
     const parrying = Date.now() < (p.parryFlashUntil || 0);
     const invulnActive = Date.now() < (p.invulnUntil || 0);
 
@@ -1717,6 +1887,10 @@ function drawFighter(p, opp) {
     } else if (isThrowing) {
         drawLimb(shoulderX, shoulderY, f * 14, shoulderY + 4, f * 26, shoulderY + 6, 7);
         drawLimb(shoulderX, shoulderY, f * 10, shoulderY - 2, f * 22, shoulderY - 4, 7);
+    } else if (isTaunting) {
+        // ท่ายั่ว: มือเท้าเอวสองข้าง โยกหัวเราะเยาะ
+        drawLimb(shoulderX, shoulderY, f * 8, shoulderY + 10, -f * 2, hipY - 6, 6);
+        drawLimb(shoulderX, shoulderY, -f * 8, shoulderY + 10, f * 2, hipY - 6, 6);
     } else if (isSpecial) {
         drawLimb(shoulderX, shoulderY, f * 14, shoulderY - 2, f * 30, shoulderY - 4, 7);
         ctx.fillStyle = "#ffffff";
@@ -1780,6 +1954,21 @@ function drawFighter(p, opp) {
         drawLimb(shoulderX, shoulderY, -armSwing, shoulderY + 10, -armSwing * 0.6, hipY + 2, 6);
     }
 
+    if (char.hasWings) {
+        // ปีกผีเสื้อกระพือเบาๆ หลังหลัง เฉพาะนักเวท/ผีเสื้อ
+        const flap = Math.sin(Date.now() / 130) * 5;
+        ctx.save();
+        ctx.globalAlpha = flashing ? 0.9 : 0.6;
+        ctx.fillStyle = flashing ? "#ffffff" : char.accent;
+        ctx.beginPath();
+        ctx.ellipse(cx - f * 8, shoulderY - 4, 13, 8 + flap, Math.PI / 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cx - f * 8, shoulderY + 10, 11, 7 + flap * 0.6, -Math.PI / 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
     if (parrying) {
         // วงแหวนฟ้าเรืองแสงตอน Parry สำเร็จ
         ctx.save();
@@ -1829,6 +2018,30 @@ function applyPhysics(p) {
 function clampX(p) {
     if (p.x < 0) p.x = 0;
     if (p.x > canvas.width - p.width) p.x = canvas.width - p.width;
+}
+
+// --- Pushbox: กันตัวละครสองฝั่งเดินทะลุ/ซ้อนทับกัน ---
+// ตั้งใจไม่ให้ระยะกันชนเท่าความกว้างเต็มตัว (0.85 เท่า) เพื่อให้ท่าโจมตีระยะประชิด/ทุ่มยังเข้าประชิดตัวได้ตามปกติ
+const PUSHBOX_RATIO = 0.85;
+function resolvePushbox(p1, p2) {
+    // ไม่กันชนตอนมีใครลอยตัว/ล้ม/กำลังทุ่ม-โดนทุ่มอยู่ กันท่าที่ตั้งใจให้เข้าประชิด/ทะลุกันได้เพี้ยน
+    if (!p1.grounded || !p2.grounded) return;
+    if (p1.state === "knockdown" || p2.state === "knockdown") return;
+    if (p1.state === "throw" || p2.state === "throw") return;
+
+    const minGap = ((p1.width + p2.width) / 2) * PUSHBOX_RATIO;
+    const c1 = p1.x + p1.width / 2;
+    const c2 = p2.x + p2.width / 2;
+    const dist = c2 - c1;
+    const overlap = minGap - Math.abs(dist);
+    if (overlap <= 0) return;
+
+    const dir = dist >= 0 ? 1 : -1; // ทิศจาก p1 ไปหา p2
+    const push = overlap / 2;
+    p1.x -= dir * push;
+    p2.x += dir * push;
+    clampX(p1);
+    clampX(p2);
 }
 
 // --- 6b. การเคลื่อนไหวของผู้เล่นในเครื่อง (เดิน/ย่อ/กระโดด/พุ่งตัว) ---
@@ -1907,6 +2120,7 @@ function render(now) {
     drawHitSparks();
     drawComboPopups(now);
     drawThrowTechPopup(now);
+    drawTauntPopup(now);
     drawKOOverlay(now);
 
     ctx.restore();
@@ -1936,6 +2150,8 @@ function update() {
 
         applyPhysics(p1);
         applyPhysics(p2);
+
+        resolvePushbox(p1, p2);
 
         trackMovement(p1);
         trackMovement(p2);
