@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Low Budget Brawl</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- โหลด Firebase SDK แบบเบาๆ สำหรับ HTML ธรรมดา -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <button id="sound-toggle" onclick="toggleSound()">🔊</button>
+    <div id="ui-layer">
+        <h1>LOW BUDGET BRAWL</h1>
+
+        <!-- เลือกตัวละคร -->
+        <div id="char-select">
+            <p>เลือกตัวละครของคุณ:</p>
+            <div class="char-cards">
+                <button class="char-card" data-char="boxer" style="border-color:#ffff00" onclick="selectCharacter('boxer')">
+                    🥊<br>นักชก<br><span class="char-sub">"หมัดไฟ"</span>
+                </button>
+                <button class="char-card" data-char="kicker" style="border-color:#00ccff" onclick="selectCharacter('kicker')">
+                    🦵<br>นักเตะ<br><span class="char-sub">"สายฟ้า"</span>
+                </button>
+                <button class="char-card" data-char="swordsman" style="border-color:#ff66ff" onclick="selectCharacter('swordsman')">
+                    ⚔️<br>นักดาบ<br><span class="char-sub">"จอมคม"</span>
+                </button>
+                <button class="char-card" data-char="assassin" style="border-color:#00ffff" onclick="selectCharacter('assassin')">
+                    🗡️<br>นักฆ่า<br><span class="char-sub">"ไซแอน"</span>
+                </button>
+                <button class="char-card" data-char="bruiser" style="border-color:#ff00aa" onclick="selectCharacter('bruiser')">
+                    🤜<br>นักซัด<br><span class="char-sub">"มาเจนต้า"</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="menu" style="display:none;">
+            <button onclick="startGame('bot')">สู้กับ Bot 🤖</button>
+            <br><br>
+            <button onclick="createRoom()">สร้างห้อง ⚔️</button>
+            <input type="text" id="roomIdInput" placeholder="ใส่รหัสห้องเพื่อ Join">
+            <button onclick="joinRoom()">เข้าร่วมห้อง 🏃</button>
+        </div>
+
+        <div id="room-info" style="display:none;">
+            รอผู้เล่นอีกคนเข้าร่วม... รหัสห้องของคุณคือ: <span id="displayRoomId"></span>
+        </div>
+    </div>
+
+    <!-- หลอดเลือด HP + เกจพลัง (Super Meter) มุมบนซ้าย-ขวา -->
+    <div id="hud" style="display:none;">
+        <div class="hp-container hp-left">
+            <div class="hp-label">P1 <span id="p1-round-pips" class="round-pips"></span></div>
+            <div class="hp-bar-bg"><div id="hp1-fill" class="hp-bar-fill p1-fill"></div></div>
+            <div class="super-bar-bg"><div id="super1-fill" class="super-bar-fill p1-super"></div></div>
+        </div>
+        <div id="round-timer-wrap">
+            <div id="round-label">ยกที่ 1</div>
+            <div id="round-timer">99</div>
+        </div>
+        <div class="hp-container hp-right">
+            <div class="hp-label"><span id="p2-round-pips" class="round-pips"></span> P2</div>
+            <div class="hp-bar-bg"><div id="hp2-fill" class="hp-bar-fill p2-fill"></div></div>
+            <div class="super-bar-bg"><div id="super2-fill" class="super-bar-fill p2-super"></div></div>
+        </div>
+    </div>
+
+    <div id="canvas-wrap" style="display:none;">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
+    <p id="controls" style="display:none; color: #888; font-size: 13px; max-width: 700px; margin: 8px auto;">
+        <b>เดิน:</b> A / D &nbsp; <b>ย่อ:</b> S &nbsp; <b>กระโดด:</b> W (กด A/D ค้างด้วย = กระโดดหน้า/หลัง) &nbsp;
+        <b>พุ่งตัว:</b> แตะ A หรือ D สองครั้งเร็วๆ<br>
+        <b>หมัด:</b> เบา U / กลาง I / หนัก O &nbsp; <b>เตะ:</b> เบา J / กลาง K / หนัก L
+        (ย่อ+เตะหนัก = กวาดขาล้ม) &nbsp; <b>ทุ่ม:</b> Space<br>
+        <b>ท่าพิเศษ:</b> E (ยืน = ปล่อยพลัง/จับทุ่มทะลุบล็อกแล้วแต่ตัวละคร / ย่อ = สวนกลางอากาศ) &nbsp;
+        <b>ซุปเปอร์:</b> Q (ต้องเกจเต็ม — แต่ละตัวมีท่าซุปเปอร์ไม่เหมือนกัน) &nbsp; <b>บล็อก:</b> เดินถอยหลัง (หันหลังให้คู่ต่อสู้)
+    </p>
+
+    <!-- จอแพ้/ชนะ -->
+    <div id="round-over" style="display:none;">
+        <div id="winner-text">P1 ชนะ!</div>
+        <div>
+            <button id="next-round-btn" onclick="nextRound()">ยกต่อไป ▶</button>
+            <button id="restart-btn" onclick="location.reload()">เล่นใหม่ทั้งหมด 🔁</button>
+        </div>
+    </div>
+
+    <!-- ปุ่มควบคุมบนจอสำหรับมือถือ -->
+    <div id="onscreen-controls" style="display:none;">
+        <div id="dpad">
+            <button id="btn-left" class="dpad-btn">◀</button>
+            <button id="btn-down" class="dpad-btn">▼</button>
+            <button id="btn-right" class="dpad-btn">▶</button>
+            <button id="btn-jump" class="dpad-btn">⤴</button>
+        </div>
+        <div id="action-buttons">
+            <button id="btn-attack" class="action-btn">👊<br>PUNCH</button>
+            <button id="btn-kick" class="action-btn">🦵<br>KICK</button>
+            <button id="btn-heavy" class="action-btn">💥<br>HEAVY</button>
+            <button id="btn-throw" class="action-btn">🤼<br>THROW</button>
+            <button id="btn-special" class="action-btn">🔥<br>SPECIAL</button>
+            <button id="btn-super" class="action-btn">⚡<br>SUPER</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

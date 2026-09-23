@@ -1,0 +1,303 @@
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    background-color: #111111; /* สีดำเข้ม */
+    color: #ffffff;
+    font-family: 'Courier New', Courier, monospace;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+    overflow: hidden;
+    touch-action: none; /* กันการซูม/เลื่อนหน้าจอตอนเล่น */
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+h1 {
+    color: #ff9900; /* สีส้ม */
+    text-shadow: 2px 2px #ffff00;
+    font-size: 3rem;
+}
+
+#canvas-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+canvas {
+    background-color: #222222;
+    border: 4px solid #ff9900;
+    image-rendering: pixelated; /* ทำให้ขอบภาพคมแบบ Pixel */
+    box-shadow: 0 0 20px rgba(255, 153, 0, 0.3);
+    max-width: 100%;
+    height: auto;
+}
+
+button, input {
+    background-color: #000000;
+    color: #ffff00;
+    border: 2px solid #ff9900;
+    padding: 10px 20px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    margin: 5px;
+}
+
+button:hover {
+    background-color: #ff9900;
+    color: #000000;
+}
+
+input {
+    color: #ffffff;
+}
+
+/* ------------------- เลือกตัวละคร ------------------- */
+.char-cards {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.char-card {
+    width: 110px;
+    padding: 14px 8px;
+    font-size: 14px;
+    border-width: 3px;
+    line-height: 1.5;
+}
+
+.char-sub {
+    color: #ff9900;
+    font-size: 11px;
+}
+
+.char-card.active {
+    background-color: #ff9900;
+    color: #000000;
+}
+
+/* ------------------- HUD: หลอดเลือด HP + เกจพลัง ------------------- */
+#hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.hp-container {
+    width: 40%;
+    max-width: 300px;
+}
+
+.hp-label {
+    font-size: 12px;
+    color: #ffff00;
+    text-align: left;
+}
+
+.hp-right .hp-label {
+    text-align: right;
+}
+
+.round-pips {
+    color: #00ccff;
+    letter-spacing: 2px;
+    font-size: 11px;
+}
+
+#round-timer-wrap {
+    flex: 0 0 auto;
+    text-align: center;
+    align-self: flex-start;
+    padding: 0 10px;
+}
+
+#round-label {
+    font-size: 10px;
+    color: #ff9900;
+}
+
+#round-timer {
+    font-size: 22px;
+    color: #ffff00;
+    text-shadow: 1px 1px #ff3300;
+    line-height: 1;
+}
+
+.hp-bar-bg {
+    width: 100%;
+    height: 18px;
+    background: #000000;
+    border: 2px solid #ff9900;
+}
+
+.hp-bar-fill {
+    height: 100%;
+    width: 100%;
+    transition: width 0.15s linear;
+}
+
+.p1-fill {
+    background: #ffff00;
+    margin-left: 0;
+}
+
+.p2-fill {
+    background: #ff9900;
+    margin-left: auto;
+}
+
+.super-bar-bg {
+    width: 100%;
+    height: 8px;
+    margin-top: 4px;
+    background: #000000;
+    border: 2px solid #00ccff;
+}
+
+.super-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: #00ccff;
+    box-shadow: 0 0 6px #00ccff;
+    transition: width 0.15s linear;
+}
+
+.p1-super { margin-left: 0; }
+.p2-super { margin-left: auto; }
+
+/* ------------------- จอแพ้/ชนะ ------------------- */
+#round-over {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 20;
+}
+
+#winner-text {
+    font-size: 2rem;
+    color: #ffff00;
+    text-shadow: 2px 2px #ff5500;
+    max-width: 90vw;
+    text-align: center;
+}
+
+#sound-toggle {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 30;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 18px;
+}
+
+/* ------------------- ปุ่มควบคุมบนจอ (มือถือ) ------------------- */
+#onscreen-controls {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 14px;
+    z-index: 10;
+    pointer-events: none; /* กล่องหลักไม่บังการแตะ ปุ่มด้านในรับเอง */
+    gap: 10px;
+}
+
+#dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 46px);
+    grid-template-rows: repeat(2, 46px);
+    gap: 8px;
+    pointer-events: auto;
+}
+#btn-left  { grid-column: 1; grid-row: 2; }
+#btn-down  { grid-column: 2; grid-row: 2; }
+#btn-right { grid-column: 3; grid-row: 2; }
+#btn-jump  { grid-column: 2; grid-row: 1; }
+
+#action-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 46px);
+    grid-template-rows: repeat(2, 46px);
+    gap: 8px;
+    pointer-events: auto;
+}
+
+.dpad-btn, .action-btn {
+    opacity: 0.55;
+    background-color: #000000;
+    color: #ffff00;
+    border: 2px solid #ff9900;
+    border-radius: 50%;
+    width: 46px;
+    height: 46px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.action-btn {
+    font-size: 8px;
+    line-height: 1.15;
+    flex-direction: column;
+}
+
+.dpad-btn.active, .action-btn.active {
+    opacity: 0.9;
+    background-color: #ff9900;
+    color: #000000;
+}
+
+/* เกจซุปเปอร์เต็ม: ปุ่ม SUPER เรืองแสง */
+#btn-super.ready {
+    opacity: 1;
+    border-color: #00ccff;
+    color: #00ccff;
+    box-shadow: 0 0 12px #00ccff;
+    animation: superPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes superPulse {
+    0%, 100% { box-shadow: 0 0 8px #00ccff; }
+    50% { box-shadow: 0 0 18px #00ccff; }
+}
+
+@media (max-width: 700px) {
+    body { padding: 8px; }
+    h1 { font-size: 1.8rem; }
+    .char-card { width: 90px; font-size: 12px; }
+    #dpad { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 40px); }
+    #action-buttons { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 40px); }
+    .dpad-btn, .action-btn { width: 40px; height: 40px; }
+}
