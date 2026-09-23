@@ -13,10 +13,19 @@ body {
     text-align: center;
     margin: 0;
     padding: 20px;
-    overflow: hidden;
-    touch-action: none; /* กันการซูม/เลื่อนหน้าจอตอนเล่น */
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+    /* หน้าเลือกตัว/เลือกสเตจอาจสูงกว่าจอมือถือ เลยต้องเลื่อนได้ */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y; /* กันการซูม แต่ยังเลื่อนขึ้นลงได้ */
     -webkit-user-select: none;
     user-select: none;
+}
+
+/* ล็อกการเลื่อนจอเฉพาะตอนกำลังเล่นจริง (มีสนามแข่งขึ้นมาแล้ว) กันมือไปโดนเลื่อนจอระหว่างต่อสู้ */
+body.playing {
+    overflow: hidden;
+    touch-action: none;
 }
 
 h1 {
@@ -246,6 +255,12 @@ input {
 }
 
 /* ------------------- ปุ่มควบคุมบนจอ (มือถือ) ------------------- */
+:root {
+    /* ขนาดปุ่มปรับตามความกว้างจออัตโนมัติ ไม่เล็กเกินไปจนกดพลาดบนมือถือ */
+    --ctrl-size: clamp(48px, 15vw, 64px);
+    --ctrl-gap: clamp(6px, 2vw, 10px);
+}
+
 #onscreen-controls {
     position: fixed;
     bottom: 0;
@@ -254,7 +269,8 @@ input {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    padding: 14px;
+    padding: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
     z-index: 10;
     pointer-events: none; /* กล่องหลักไม่บังการแตะ ปุ่มด้านในรับเอง */
     gap: 10px;
@@ -262,9 +278,9 @@ input {
 
 #dpad {
     display: grid;
-    grid-template-columns: repeat(3, 46px);
-    grid-template-rows: repeat(2, 46px);
-    gap: 8px;
+    grid-template-columns: repeat(3, var(--ctrl-size));
+    grid-template-rows: repeat(2, var(--ctrl-size));
+    gap: var(--ctrl-gap);
     pointer-events: auto;
 }
 #btn-left  { grid-column: 1; grid-row: 2; }
@@ -274,21 +290,21 @@ input {
 
 #action-buttons {
     display: grid;
-    grid-template-columns: repeat(3, 46px);
-    grid-template-rows: repeat(2, 46px);
-    gap: 8px;
+    grid-template-columns: repeat(3, var(--ctrl-size));
+    grid-template-rows: repeat(2, var(--ctrl-size));
+    gap: var(--ctrl-gap);
     pointer-events: auto;
 }
 
 .dpad-btn, .action-btn {
-    opacity: 0.55;
+    opacity: 0.7;
     background-color: #000000;
     color: #ffff00;
     border: 2px solid #ff9900;
     border-radius: 50%;
-    width: 46px;
-    height: 46px;
-    font-size: 16px;
+    width: var(--ctrl-size);
+    height: var(--ctrl-size);
+    font-size: clamp(16px, 4.5vw, 20px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -298,8 +314,8 @@ input {
 }
 
 .action-btn {
-    font-size: 8px;
-    line-height: 1.15;
+    font-size: clamp(9px, 2.6vw, 11px);
+    line-height: 1.2;
     flex-direction: column;
 }
 
@@ -324,10 +340,18 @@ input {
 }
 
 @media (max-width: 700px) {
-    body { padding: 8px; }
-    h1 { font-size: 1.8rem; }
+    body { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+    h1 { font-size: 1.8rem; margin: 10px 0; }
     .char-card { width: 90px; font-size: 12px; }
-    #dpad { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 40px); }
-    #action-buttons { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 40px); }
-    .dpad-btn, .action-btn { width: 40px; height: 40px; }
+    #charPreviewCanvas { width: 110px; height: 125px; }
+    #controls { display: none !important; } /* คำอธิบายปุ่มคีย์บอร์ดไม่จำเป็นบนมือถือที่ใช้ปุ่มสัมผัส เอาออกให้จอโล่งขึ้น */
+}
+
+/* จอเตี้ยมากๆ (มือถือแนวตั้งจอเล็ก): บีบระยะห่างให้กดปุ่มเริ่มเกมถึงง่ายขึ้นโดยไม่ต้องเลื่อนเยอะ */
+@media (max-height: 700px) {
+    h1 { font-size: 1.6rem; margin: 6px 0; }
+    #char-select p, #stage-select p { margin: 6px 0; }
+    #charPreviewCanvas { width: 96px; height: 109px; margin-bottom: 8px; }
+    .char-card { padding: 8px 6px; }
+    .stage-card { padding: 6px 4px; }
 }

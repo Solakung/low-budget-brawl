@@ -722,9 +722,12 @@ window.addEventListener("orientationchange", resizeCanvas);
 function startGame(mode) {
     document.getElementById("char-select").style.display = "none";
     document.getElementById("menu").style.display = "none";
+    const stageSelEl = document.getElementById("stage-select");
+    if (stageSelEl) stageSelEl.style.display = "none";
     document.getElementById("canvas-wrap").style.display = "flex";
     document.getElementById("controls").style.display = "block";
     document.getElementById("hud").style.display = "flex";
+    document.body.classList.add("playing"); // ล็อกการเลื่อนจอตอนเริ่มเล่นจริง กันมือไปโดนเลื่อนจอกลางไฟต์
 
     if (mode === "bot") {
         p1.character = selectedCharacterId;
