@@ -273,29 +273,45 @@ const DASH_ATTACK_TIMING = { startup: 60, active: 140, recovery: 260 };
 const THROW_TIMING = { startup: 110, active: 90, recovery: 380 };
 const THROW_RANGE = 42;
 const SUPER_TIMING = { startup: 220, active: 220, recovery: 520 };
+const CANCEL_WINDOW_MS = 220; // หน้าต่างเวลาแทรกท่าพิเศษ/ซุปเปอร์หลังท่าเบา/กลางตีโดน (Cancel แบบ SF)
 
 // --- 2b. ตัวละครที่เลือกได้ แต่ละตัวมีท่าไม้ตายของตัวเอง ---
 const CHARACTERS = [
     {
+        // --- Yellow Boxer: สาย Armor / Power ---
+        // หมัดหนักมี Super Armor (ทนโดนท่าเบา 1 ฮิตแล้วชกต่อได้ ไม่ติด Hitstun),
+        // Super "Haymaker" หมัดเดียวจบพุ่งเข้าประชิด ดาเมจสูงสุดในบรรดาซุปเปอร์ปกติ
         id: "boxer", name: "นักชก \"หมัดไฟ\"", color: "#ffff00", accent: "#ff3300", hasSword: false,
         punchDmg: 8, punchRange: 45,
         kickDmg: 14, kickRange: 55,
-        projectileDmg: 10, superDmg: 26,
-        hp: 100
+        projectileDmg: 10, superDmg: 30,
+        hp: 100,
+        armorOnHeavy: true,
+        superType: "haymaker"
     },
     {
+        // --- Cyan Kicker: สาย Speed / Multi-hit ---
+        // เดิน/พุ่งตัว/โปรเจกไทล์เร็วกว่าตัวอื่น,
+        // Super "Thunder Barrage" เตะรัว 4 ฮิตติดกัน จบด้วยล้ม
         id: "kicker", name: "นักเตะ \"สายฟ้า\"", color: "#00ccff", accent: "#ffffff", hasSword: false,
         punchDmg: 6, punchRange: 40,
         kickDmg: 18, kickRange: 72,
         projectileDmg: 9, superDmg: 28,
-        hp: 100
+        hp: 100,
+        walkSpeed: WALK_SPEED * 1.15, dashSpeed: DASH_SPEED * 1.15, projectileSpeed: 10.5,
+        superType: "barrage"
     },
     {
+        // --- Magenta-pink Swordsman: สาย Range / Poke ---
+        // ท่าพิเศษยืน = พุ่งฟันดาบระยะไกลแทนปล่อยพลัง (Sword Lunge),
+        // Super "Iaido" ชักดาบฟันระยะไกลสุด ดาเมจสูง แลกกับสตาร์ทอัพช้าที่สุด
         id: "swordsman", name: "นักดาบ \"จอมคม\"", color: "#ff66ff", accent: "#ffff00", hasSword: true,
         punchDmg: 11, punchRange: 72,
         kickDmg: 10, kickRange: 50,
-        projectileDmg: 12, superDmg: 30,
-        hp: 100
+        projectileDmg: 12, superDmg: 32,
+        hp: 100,
+        hasSwordLunge: true,
+        superType: "iaido"
     },
     {
         // --- Cyan Assassin: สาย Rushdown / Mix-up ---
@@ -547,8 +563,16 @@ function canAct(p) {
     return !!p && !gameOver && p.grounded && (p.state === "idle" || p.state === "walk" || p.state === "crouch");
 }
 
+// ใช้เฉพาะท่าพิเศษ/ซุปเปอร์: ให้แทรกเข้าไปได้ทันทีถ้ายังอยู่ในหน้าต่าง Cancel
+// (เปิดจากท่าเบา/กลางที่เพิ่งตีโดนคู่ต่อสู้) แม้ตัวเองจะยังอยู่ในสถานะ "attack" (กำลัง recovery) ก็ตาม
+function canActOrCancel(p) {
+    if (canAct(p)) return true;
+    return !!p && !gameOver && p.grounded && p.state === "attack" && Date.now() < (p.cancelWindowUntil || 0);
+}
+
 function beginAction(p, def, timing) {
     const now = Date.now();
+    p.cancelWindowUntil = 0; // เริ่มท่าใหม่แล้ว เคลียร์หน้าต่าง Cancel เก่าทิ้ง
     p.state = def.isThrow ? "throw" : "attack";
     const startupEnd = now + timing.startup;
     const activeEnd = startupEnd + (timing.active || 0);
@@ -605,6 +629,7 @@ function attackWith(p, type, strength) {
     const char = getChar(p);
     const crouch = p.crouching;
     let def, timing;
+    p.armorHitsLeft = 0; // เคลียร์เกราะเก่าทิ้งก่อนเริ่มท่าใหม่ (กันเกราะค้างจากท่าก่อนหน้า)
 
     if (inDash) {
         timing = DASH_ATTACK_TIMING;
@@ -636,8 +661,10 @@ function attackWith(p, type, strength) {
             dmg: Math.round((type === "kick" ? char.kickDmg : char.punchDmg) * st.dmg),
             range: (type === "kick" ? char.kickRange : char.punchRange) - (crouch ? 4 : 0),
             hitstunMs: st.hitstun, blockstunMs: st.blockstun,
-            meterGain: strength === "heavy" ? 9 : (strength === "medium" ? 6 : 3)
+            meterGain: strength === "heavy" ? 9 : (strength === "medium" ? 6 : 3),
+            cancelable: strength !== "heavy"
         };
+        if (type === "punch" && strength === "heavy" && char.armorOnHeavy) p.armorHitsLeft = 1;
     }
     beginAction(p, def, timing);
 }
@@ -666,7 +693,7 @@ function doThrow() { tryThrow(localPlayer()); }
 
 // -- Command Grab (เฉพาะตัวละครที่ hasCommandGrab): ระยะกว้างกว่าทุ่มปกติ ทะลุการบล็อก 100% --
 function tryCommandGrab(p) {
-    if (!canAct(p)) return;
+    if (!canActOrCancel(p)) return;
     const char = getChar(p);
     beginAction(p, {
         id: "commandGrab", isThrow: true, range: THROW_RANGE + 34, dmg: (char.punchDmg || 10) + 14,
@@ -677,7 +704,7 @@ function tryCommandGrab(p) {
 
 // -- ท่าพิเศษ: ย่อ+พิเศษ = สวนกลับกลางอากาศ (Anti-air) / ยืน+พิเศษ = ปล่อยพลัง (Projectile) --
 function tryAntiAir(p) {
-    if (!canAct(p)) return;
+    if (!canActOrCancel(p)) return;
     const char = getChar(p);
     beginAction(p, {
         id: "antiair", type: "special", isLow: false, knockdown: true,
@@ -688,9 +715,22 @@ function tryAntiAir(p) {
     p.grounded = false;
     sfx.special();
 }
+// -- Sword Lunge (เฉพาะตัวละครที่ hasSwordLunge): พุ่งฟันดาบระยะไกล แทนการปล่อยพลัง --
+const SWORD_LUNGE_TIMING = { startup: 150, active: 160, recovery: 300 };
+function trySwordLunge(p) {
+    if (!canActOrCancel(p)) return;
+    const char = getChar(p);
+    beginAction(p, {
+        id: "swordLunge", type: "special", isLow: false, knockdown: false,
+        dmg: Math.round(char.punchDmg * 1.6), range: 100,
+        dashMove: true, hitstunMs: 420, blockstunMs: 240, meterGain: 9
+    }, SWORD_LUNGE_TIMING);
+    p.vx = p.facing * 9;
+    sfx.special();
+}
 function tryProjectile(p) {
     const now = Date.now();
-    if (!canAct(p) || now < (p.projectileCooldownUntil || 0)) return;
+    if (!canActOrCancel(p) || now < (p.projectileCooldownUntil || 0)) return;
     const char = getChar(p);
     beginAction(p, {
         id: "projectile", type: "special", isLow: false, knockdown: false,
@@ -706,6 +746,7 @@ function doSpecial() {
     const char = getChar(p);
     if (p.crouching) { tryAntiAir(p); return; }
     if (char.hasCommandGrab) { tryCommandGrab(p); return; }
+    if (char.hasSwordLunge) { trySwordLunge(p); return; }
     tryProjectile(p);
 }
 
@@ -726,26 +767,49 @@ function updateProjectilesMotion(p) {
 
 // -- เกจพลัง / ท่าไม้ตายสุดยอด (Super Art) --
 function trySuper(p) {
-    if (!canAct(p) || (p.super || 0) < MAX_METER) return;
+    if (!canActOrCancel(p) || (p.super || 0) < MAX_METER) return;
     const char = getChar(p);
     let timing = SUPER_TIMING;
     const def = {
-        id: "super", type: "super", isLow: false, knockdown: true,
+        id: char.superType ? char.superType : "super", type: "super", isLow: false, knockdown: true,
         dmg: char.superDmg, range: 70,
         hitstunMs: 0, blockstunMs: 320, meterGain: 0, invulnStartup: true
     };
 
     if (char.superType === "flurry") {
-        // Lightning Flurry: พุ่งเข้าใส่เร็วมาก โดนแล้วดาเมจสูง แต่ถ้าบล็อกติดจะเปิดช่องโหว่นาน
+        // Lightning Flurry: พุ่งเข้าใส่แล้วรัวหมัด 3 ฮิตติดกัน โดนแล้วดาเมจสูง แต่ถ้าบล็อกติดจะเปิดช่องโหว่นาน
         def.range = 95;
         def.dashMove = true;
-        timing = { startup: 150, active: 260, recovery: 620 };
+        def.hits = 3;
+        def.hitInterval = 130;
+        def.dmg = Math.round(char.superDmg / 3);
+        timing = { startup: 150, active: 320, recovery: 560 };
         p.vx = p.facing * 14;
     } else if (char.superType === "grab") {
         // Earthquake Piledriver: จับทุ่มทะลุการบล็อก ดาเมจมหาศาล แต่ต้องประชิดตัวมากๆ
         def.isThrow = true;
         def.range = 55;
         timing = { startup: 260, active: 110, recovery: 480 };
+    } else if (char.superType === "haymaker") {
+        // Haymaker: หมัดเดียวจบ พุ่งเข้าประชิดสั้นๆ ทนโดนท่าเบาระหว่างพุ่ง (Super Armor) ดาเมจสูงสุดในเกม
+        def.range = 60;
+        def.dashMove = true;
+        timing = { startup: 180, active: 180, recovery: 460 };
+        p.vx = p.facing * 10;
+        p.armorHitsLeft = 1;
+    } else if (char.superType === "barrage") {
+        // Thunder Barrage: เตะรัว 4 ฮิตติดกันอยู่กับที่ ระยะไกล จบด้วยล้ม
+        def.range = 110;
+        def.hits = 4;
+        def.hitInterval = 110;
+        def.dmg = Math.round(char.superDmg / 4);
+        timing = { startup: 130, active: 480, recovery: 460 };
+    } else if (char.superType === "iaido") {
+        // Iaido: ชักดาบฟันระยะไกลสุดในเกม ดาเมจสูง แลกกับสตาร์ทอัพช้าที่สุด
+        def.range = 130;
+        def.dashMove = true;
+        timing = { startup: 300, active: 160, recovery: 520 };
+        p.vx = p.facing * 12;
     }
 
     beginAction(p, def, timing);
@@ -799,7 +863,9 @@ function runBotAI() {
             p.vy = (char.jumpForce || JUMP_FORCE); p.grounded = false; p.state = "jump";
             p.vx = dx > 0 ? JUMP_HFORCE : -JUMP_HFORCE;
         }
-        if (Math.random() < 0.006 && !char.hasCommandGrab) tryProjectile(p);
+        if (Math.random() < 0.006 && !char.hasCommandGrab) {
+            if (char.hasSwordLunge) trySwordLunge(p); else tryProjectile(p);
+        }
     } else if (dist > 55) {
         p.crouching = Math.random() < 0.15;
         p.state = p.crouching ? "crouch" : "idle";
@@ -831,9 +897,12 @@ function isBlocking(p) {
 function resolveAttackAgainst(attacker, defender) {
     if (!attacker.action) return;
     if (attacker.state !== "attack" && attacker.state !== "throw") return;
-    if (attacker.action.phase !== "active" || attacker.action.hitDone) return;
+    const maxHits = attacker.action.hits || 1;
+    const hitsDone = attacker.action.hitsDone || 0;
+    if (attacker.action.phase !== "active" || hitsDone >= maxHits) return;
     if (attacker.action.spawnsProjectile) return;
     const now = Date.now();
+    if (now < (attacker.action.nextHitAt || 0)) return; // ท่าหลายฮิต (เช่น Barrage/Flurry) ต้องเว้นจังหวะระหว่างฮิต
     if (now < (defender.invulnUntil || 0)) return;
 
     const distance = Math.abs((attacker.x + attacker.width / 2) - (defender.x + defender.width / 2));
@@ -845,13 +914,16 @@ function resolveAttackAgainst(attacker, defender) {
         if (!defender.grounded || busy) return; // ท่ากดจับใช้ไม่ได้ถ้าคู่ต่อสู้กำลังโจมตี/ลอยตัว/ล้มอยู่แล้ว
     }
 
-    attacker.action.hitDone = true;
+    attacker.action.hitsDone = hitsDone + 1;
+    if (attacker.action.hitsDone < maxHits) {
+        attacker.action.nextHitAt = now + (attacker.action.hitInterval || 120);
+    }
+    const isFinalHit = attacker.action.hitsDone >= maxHits;
 
-    // Super Armor (Titan Dash): ถ้ากำลังพุ่งชนอยู่และโดนแค่โจมตีเบา จะไม่ติด Hitstun แค่เสียเลือดแล้วพุ่งต่อ
-    const defChar = getChar(defender);
-    if (!isThrow && defChar.hasSuperArmor && (defender.armorHitsLeft || 0) > 0 &&
-        defender.state === "attack" && defender.action && defender.action.id === "dashAttack" &&
-        attacker.action.strength === "light") {
+    // Super Armor: ถ้าตัวละครกำลังอยู่ในท่าที่ติดเกราะ (Titan Dash ของ Bruiser / หมัดหนักของ Boxer)
+    // และโดนแค่โจมตีเบา จะไม่ติด Hitstun แค่เสียเลือดแล้วทำท่าต่อได้
+    if (!isThrow && (defender.armorHitsLeft || 0) > 0 &&
+        defender.state === "attack" && attacker.action.strength === "light") {
         defender.hp -= attacker.action.dmg;
         defender.hp = Math.max(0, defender.hp);
         defender.hitFlashUntil = now + 100;
@@ -864,7 +936,8 @@ function resolveAttackAgainst(attacker, defender) {
     }
 
     const low = !!attacker.action.isLow;
-    const blocked = !isThrow && isBlocking(defender) && (!low || defender.crouching);
+    const stillBlockingString = defender.state === "blockstun" && maxHits > 1;
+    const blocked = !isThrow && (isBlocking(defender) || stillBlockingString) && (!low || defender.crouching);
 
     if (blocked) {
         const dmg = Math.max(1, Math.round(attacker.action.dmg * 0.12));
@@ -873,7 +946,8 @@ function resolveAttackAgainst(attacker, defender) {
         defender.stunUntil = now + (attacker.action.blockstunMs || 200);
         defender.x += attacker.facing * 3;
         defender.hitFlashUntil = now + 80;
-        gainMeter(attacker, Math.round((attacker.action.meterGain || 4) * 0.5));
+        const blockMeterGain = attacker.action.meterGain != null ? attacker.action.meterGain : 4;
+        gainMeter(attacker, Math.round(blockMeterGain * 0.5));
         gainMeter(defender, 2);
         defender.comboCount = 0;
         sfx.block();
@@ -881,7 +955,8 @@ function resolveAttackAgainst(attacker, defender) {
         defender.hp -= attacker.action.dmg;
         defender.hitFlashUntil = now + 150;
         defender.action = null;
-        gainMeter(attacker, attacker.action.meterGain || 5);
+        const meterGain = attacker.action.meterGain != null ? attacker.action.meterGain : 5;
+        gainMeter(attacker, meterGain);
         gainMeter(defender, 5);
 
         // Hit Sparks: เศษอนุภาคกระเด็นจากจุดที่โดนตี
@@ -899,14 +974,21 @@ function resolveAttackAgainst(attacker, defender) {
 
         // Hit Stop / Screen Shake: เพิ่มความสะใจให้ท่าหนักๆ
         const bigHit = attacker.action.strength === "heavy" || attacker.action.type === "super" ||
-            attacker.action.id === "sweep" || attacker.action.id === "commandGrab";
+            attacker.action.id === "sweep" || attacker.action.id === "commandGrab" ||
+            attacker.action.id === "swordLunge";
         if (bigHit) triggerHitStop(attacker.action.type === "super" ? 90 : 60);
         if (isThrow) triggerShake(200, 5);
         if (attacker.action.type === "super") triggerShake(260, 8);
 
         if (isThrow) sfx.throwMove(); else sfx.hit(attacker.action.strength || "medium");
 
-        if (attacker.action.knockdown) {
+        // Cancel: ถ้าเป็นท่าเบา/กลางที่ตั้งค่าไว้ว่า cancelable และตีโดนแล้ว
+        // เปิดหน้าต่างเวลาสั้นๆ ให้ผู้โจมตีแทรกท่าพิเศษ/ซุปเปอร์เข้าไปได้ทันที (ฟีลแบบ Street Fighter)
+        if (attacker.action.cancelable && isFinalHit) {
+            attacker.cancelWindowUntil = now + CANCEL_WINDOW_MS;
+        }
+
+        if (attacker.action.knockdown && isFinalHit) {
             defender.state = "knockdown";
             defender.stunUntil = now + 900;
             defender.grounded = true;
@@ -1059,9 +1141,9 @@ function drawFighter(p, opp) {
     const kicking = p.state === "attack" && a && a.type === "kick" && a.id !== "dashAttack";
     const punching = p.state === "attack" && a && (a.type === "punch" || a.id === "sweep" ? false : a.type === "punch");
     const isSweep = p.state === "attack" && a && a.id === "sweep";
-    const isDashAttack = p.state === "attack" && a && a.id === "dashAttack";
+    const isDashAttack = p.state === "attack" && a && (a.id === "dashAttack" || a.id === "haymaker" || a.id === "iaido" || a.id === "swordLunge" || a.id === "flurry");
     const isThrowing = p.state === "throw";
-    const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super");
+    const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super" || a.id === "barrage");
 
     ctx.save();
     ctx.strokeStyle = flashing ? "#ffffff" : char.color;
