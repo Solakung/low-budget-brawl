@@ -221,6 +221,18 @@ input {
 .p1-super { margin-left: 0; }
 .p2-super { margin-left: auto; }
 
+/* Rage/Comeback: เลือดต่ำกว่าเกณฑ์ = หลอดเลือดกระพริบแดงเตือนว่าดาเมจแรงขึ้น */
+.hp-bar-fill.rage {
+    background: #ff2200;
+    box-shadow: 0 0 10px #ff2200;
+    animation: rageFlicker 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes rageFlicker {
+    from { filter: brightness(1); }
+    to { filter: brightness(1.5); }
+}
+
 /* ------------------- จอแพ้/ชนะ ------------------- */
 #round-over {
     position: fixed;

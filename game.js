@@ -21,6 +21,10 @@ let roomId = "";
 let gameLoop;
 let gameOver = false;
 
+// ส่งข้อมูลขึ้น Firebase สูงสุดกี่ ms/ครั้ง แทนที่จะส่งทุกเฟรม (~60/วิ) เพื่อประหยัด quota และลด jitter
+const NET_SYNC_INTERVAL_MS = 50;
+let lastNetSyncAt = 0;
+
 // --- 2a. ระบบเสียง (Web Audio API สังเคราะห์เสียงสไตล์ 8-bit เพื่อประหยัดสเปค) ---
 let audioCtx = null;
 let audioMuted = false;
@@ -135,6 +139,10 @@ function triggerShake(ms, mag) {
     shakeMag = Math.max(shakeMag, mag);
 }
 
+// --- Throw Tech: ถ้าทั้งคู่กดทุ่มใกล้เคียงกัน = หลุดทุ่มทั้งคู่ ไม่มีใครโดนดาเมจ ---
+let throwTechUntil = 0;
+let throwTechX = 0, throwTechY = 0;
+
 let hitSparks = [];
 function spawnHitSparks(x, y, color, count) {
     for (let i = 0; i < count; i++) {
@@ -207,6 +215,22 @@ function drawComboPopups(now) {
         ctx.fillText(text, x, y);
         ctx.restore();
     });
+}
+
+function drawThrowTechPopup(now) {
+    if (now > throwTechUntil) return;
+    const age = 700 - (throwTechUntil - now);
+    const t = Math.min(1, age / 700);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - t);
+    ctx.font = "bold 24px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 4;
+    ctx.strokeText("หลุดทุ่ม!", throwTechX, throwTechY - t * 20);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("หลุดทุ่ม!", throwTechX, throwTechY - t * 20);
+    ctx.restore();
 }
 
 // --- 2c. ระบบยก (Best of 3) และตัวจับเวลา ---
@@ -298,6 +322,14 @@ const DASH_MS = 210;              // ระยะเวลาพุ่งตั�
 const DASH_TAP_WINDOW = 280;      // กดทิศทางซ้ำภายในกี่ ms ถึงนับเป็น Dash
 const DASH_COOLDOWN = 260;
 const MAX_METER = 100;
+
+// --- Rage / Comeback: เลือดต่ำกว่าเกณฑ์ = ดาเมจที่ตีออกไปแรงขึ้น ช่วยให้เกมพลิกกลับมาได้ตอนท้าย ---
+const RAGE_HP_RATIO = 0.3;   // เลือดเหลือ <= 30% ของแม็กซ์ = เข้าสู่ Rage
+const RAGE_DMG_MULT = 1.18;  // ดาเมจที่ตีออกไประหว่าง Rage คูณเท่านี้
+function rageMult(p) {
+    if (!p || !p.maxHp || p.hp <= 0) return 1;
+    return p.hp <= p.maxHp * RAGE_HP_RATIO ? RAGE_DMG_MULT : 1;
+}
 
 // จังหวะท่าโจมตี (ms): startup = เตรียมท่า, active = ช่วงตีโดนได้จริง, recovery = ช่วงเก็บท่า
 const STRENGTH = {
@@ -783,6 +815,21 @@ function createRoom() {
         const d = snapshot.val();
         if (d && typeof d.p1hp === "number") p1.hp = d.p1hp;
     });
+
+    // --- Presence: ประกาศตัวว่า Host ยังอยู่ และตั้งให้ Firebase เซ็ตค่าเป็น false อัตโนมัติถ้าหลุดการเชื่อมต่อ ---
+    const hostPresenceRef = db.ref("rooms/" + roomId + "/hostPresent");
+    hostPresenceRef.set(true);
+    hostPresenceRef.onDisconnect().set(false);
+
+    // จับตาดู Guest: ถ้าเคยเชื่อมต่อแล้วหลุดไประหว่างเล่น ให้จบเกมทันทีแทนที่จะค้างรอเฉยๆ
+    let guestWasConnected = false;
+    db.ref("rooms/" + roomId + "/guestPresent").on("value", (snapshot) => {
+        const present = snapshot.val();
+        if (present === true) guestWasConnected = true;
+        if (present === false && guestWasConnected && gameMode === "host") {
+            handleOpponentDisconnect();
+        }
+    });
 }
 
 function joinRoom() {
@@ -802,6 +849,20 @@ function joinRoom() {
     db.ref("rooms/" + roomId + "/combat").on("value", (snapshot) => {
         const d = snapshot.val();
         if (d && typeof d.p2hp === "number") p2.hp = d.p2hp;
+    });
+
+    // --- Presence: ประกาศตัวว่า Guest ยังอยู่ และตั้งให้ Firebase เซ็ตค่าเป็น false อัตโนมัติถ้าหลุดการเชื่อมต่อ ---
+    const guestPresenceRef = db.ref("rooms/" + roomId + "/guestPresent");
+    guestPresenceRef.set(true);
+    guestPresenceRef.onDisconnect().set(false);
+
+    // จับตาดู Host: ห้องมีอยู่แล้วก่อน Guest จะ join ได้ ถือว่า Host เชื่อมต่ออยู่ตั้งแต่แรก
+    let hostWasConnected = true;
+    db.ref("rooms/" + roomId + "/hostPresent").on("value", (snapshot) => {
+        const present = snapshot.val();
+        if (present === false && hostWasConnected && gameMode === "guest") {
+            handleOpponentDisconnect();
+        }
     });
 
     startGame("guest");
@@ -1252,7 +1313,7 @@ function resolveAttackAgainst(attacker, defender) {
     // และโดนแค่โจมตีเบา จะไม่ติด Hitstun แค่เสียเลือดแล้วทำท่าต่อได้
     if (!isThrow && (defender.armorHitsLeft || 0) > 0 &&
         defender.state === "attack" && attacker.action.strength === "light") {
-        defender.hp -= attacker.action.dmg;
+        defender.hp -= Math.round(attacker.action.dmg * rageMult(attacker));
         defender.hp = Math.max(0, defender.hp);
         defender.hitFlashUntil = now + 100;
         defender.armorHitsLeft -= 1;
@@ -1285,7 +1346,7 @@ function resolveAttackAgainst(attacker, defender) {
             sfx.parry();
             return;
         }
-        const dmg = Math.max(1, Math.round(attacker.action.dmg * 0.12));
+        const dmg = Math.max(1, Math.round(attacker.action.dmg * rageMult(attacker) * 0.12));
         defender.hp -= dmg;
         defender.state = "blockstun";
         defender.stunUntil = now + (attacker.action.blockstunMs || 200);
@@ -1297,7 +1358,7 @@ function resolveAttackAgainst(attacker, defender) {
         defender.comboCount = 0;
         sfx.block();
     } else {
-        defender.hp -= attacker.action.dmg;
+        defender.hp -= Math.round(attacker.action.dmg * rageMult(attacker));
         defender.hitFlashUntil = now + 150;
         defender.action = null;
         const meterGain = attacker.action.meterGain != null ? attacker.action.meterGain : 5;
@@ -1362,13 +1423,13 @@ function resolveProjectile(owner, target) {
     const now = Date.now();
     const blocked = isBlocking(target);
     if (blocked) {
-        const dmg = Math.max(1, Math.round(pr.dmg * 0.15));
+        const dmg = Math.max(1, Math.round(pr.dmg * rageMult(owner) * 0.15));
         target.hp -= dmg;
         target.state = "blockstun";
         target.stunUntil = now + 220;
         target.hitFlashUntil = now + 80;
     } else {
-        target.hp -= pr.dmg;
+        target.hp -= Math.round(pr.dmg * rageMult(owner));
         target.state = "hitstun";
         target.stunUntil = now + 380;
         target.hitFlashUntil = now + 150;
@@ -1380,8 +1441,43 @@ function resolveProjectile(owner, target) {
     gainMeter(target, 4);
 }
 
+// ถ้าทั้งคู่อยู่ในสถานะ "throw" พร้อมกัน (กดทุ่มใกล้เคียงกันพอ) = หลุดทุ่มทั้งคู่ ไม่มีฝ่ายไหนโดนทุ่ม
+function checkThrowTech() {
+    if (p1.state !== "throw" || p2.state !== "throw") return false;
+    if (!p1.action || !p2.action || !p1.action.isThrow || !p2.action.isThrow) return false;
+
+    const now = Date.now();
+    p1.action = null; p2.action = null;
+    p1.state = "idle"; p2.state = "idle";
+
+    // ผลักออกจากกัน (เช็คทิศทางจากตำแหน่งจริง กันกรณีตัวละครสลับฝั่งกัน)
+    const dir = (p1.x + p1.width / 2) <= (p2.x + p2.width / 2) ? 1 : -1;
+    p1.x -= dir * 24;
+    p2.x += dir * 24;
+    clampX(p1); clampX(p2);
+
+    gainMeter(p1, 5); gainMeter(p2, 5);
+    p1.hitFlashUntil = now + 120; p2.hitFlashUntil = now + 120;
+
+    throwTechX = (p1.x + p1.width / 2 + p2.x + p2.width / 2) / 2;
+    throwTechY = GROUND_Y - 40;
+    throwTechUntil = now + 700;
+    spawnHitSparks(throwTechX, throwTechY, "#ffffff", 12);
+    triggerHitStop(80);
+    sfx.parry();
+    return true;
+}
+
 function checkHits() {
     if (gameOver) return;
+    if (checkThrowTech()) {
+        p1.hp = Math.max(0, p1.hp);
+        p2.hp = Math.max(0, p2.hp);
+        if (gameMode === "host") {
+            db.ref("rooms/" + roomId + "/combat").set({ p1hp: p1.hp, p2hp: p2.hp });
+        }
+        return;
+    }
     resolveAttackAgainst(p1, p2);
     resolveAttackAgainst(p2, p1);
     resolveProjectile(p1, p2);
@@ -1401,8 +1497,14 @@ function updateHealthUI() {
     const hp1 = document.getElementById("hp1-fill");
     const hp2 = document.getElementById("hp2-fill");
     const p1Max = p1.maxHp || 100, p2Max = p2.maxHp || 100;
-    if (hp1) hp1.style.width = Math.max(0, (p1.hp / p1Max) * 100) + "%";
-    if (hp2) hp2.style.width = Math.max(0, (p2.hp / p2Max) * 100) + "%";
+    if (hp1) {
+        hp1.style.width = Math.max(0, (p1.hp / p1Max) * 100) + "%";
+        hp1.classList.toggle("rage", rageMult(p1) > 1);
+    }
+    if (hp2) {
+        hp2.style.width = Math.max(0, (p2.hp / p2Max) * 100) + "%";
+        hp2.classList.toggle("rage", rageMult(p2) > 1);
+    }
 
     const sp1 = document.getElementById("super1-fill");
     const sp2 = document.getElementById("super2-fill");
@@ -1412,6 +1514,22 @@ function updateHealthUI() {
     const myPlayer = localPlayer();
     const superBtn = document.getElementById("btn-super");
     if (superBtn) superBtn.classList.toggle("ready", !!myPlayer && (myPlayer.super || 0) >= MAX_METER);
+}
+
+// อีกฝ่ายหลุดการเชื่อมต่อ (ปิดแท็บ/เน็ตหลุด) กลางเกม Online: จบเกมทันทีแทนที่จะค้างรอเฉยๆ
+function handleOpponentDisconnect() {
+    if (gameOver) return;
+    gameOver = true;
+    stopRoundTimer();
+    stopBGM();
+    const winnerText = document.getElementById("winner-text");
+    const nextBtn = document.getElementById("next-round-btn");
+    const restartBtn = document.getElementById("restart-btn");
+    if (winnerText) winnerText.innerText = "อีกฝ่ายหลุดการเชื่อมต่อ 🔌";
+    if (nextBtn) nextBtn.style.display = "none";
+    if (restartBtn) restartBtn.style.display = "inline-block";
+    const overlay = document.getElementById("round-over");
+    if (overlay) overlay.style.display = "flex";
 }
 
 function endRound(winner) {
@@ -1781,6 +1899,7 @@ function render(now) {
     drawFighter(p2, p1);
     drawHitSparks();
     drawComboPopups(now);
+    drawThrowTechPopup(now);
     drawKOOverlay(now);
 
     ctx.restore();
@@ -1824,10 +1943,15 @@ function update() {
         updateHealthUI();
         checkRoundEnd();
 
-        if (gameMode === "host") {
-            db.ref("rooms/" + roomId + "/p1").set(p1);
-        } else if (gameMode === "guest") {
-            db.ref("rooms/" + roomId + "/p2").set(p2);
+        // ส่งข้อมูลขึ้น Firebase แค่ทุกๆ NET_SYNC_INTERVAL_MS แทนที่จะส่งทุกเฟรม (~60/วิ)
+        // ลด bandwidth/quota และลด jitter ที่เกิดจากการยิง write รัวเกินไป
+        if ((gameMode === "host" || gameMode === "guest") && now - lastNetSyncAt >= NET_SYNC_INTERVAL_MS) {
+            lastNetSyncAt = now;
+            if (gameMode === "host") {
+                db.ref("rooms/" + roomId + "/p1").set(p1);
+            } else {
+                db.ref("rooms/" + roomId + "/p2").set(p2);
+            }
         }
     }
 
