@@ -36,6 +36,17 @@
             </div>
         </div>
 
+        <div id="stage-select" style="display:none;">
+            <p>เลือกสเตจ:</p>
+            <div class="stage-cards">
+                <button class="stage-card active" data-stage="alley" onclick="selectStage('alley')">🌆<br>ตรอกท้ายซอย</button>
+                <button class="stage-card" data-stage="dojo" onclick="selectStage('dojo')">🏮<br>โดโจ</button>
+                <button class="stage-card" data-stage="neon" onclick="selectStage('neon')">🌃<br>นีออนซิตี้</button>
+                <button class="stage-card" data-stage="volcano" onclick="selectStage('volcano')">🌋<br>ภูเขาไฟ</button>
+                <button class="stage-card" data-stage="space" onclick="selectStage('space')">🌌<br>อวกาศ</button>
+            </div>
+        </div>
+
         <div id="menu" style="display:none;">
             <button onclick="startGame('bot')">สู้กับ Bot 🤖</button>
             <br><br>
@@ -76,7 +87,8 @@
         <b>หมัด:</b> เบา U / กลาง I / หนัก O &nbsp; <b>เตะ:</b> เบา J / กลาง K / หนัก L
         (ย่อ+เตะหนัก = กวาดขาล้ม) &nbsp; <b>ทุ่ม:</b> Space<br>
         <b>ท่าพิเศษ:</b> E (ยืน = ปล่อยพลัง/จับทุ่มทะลุบล็อกแล้วแต่ตัวละคร / ย่อ = สวนกลางอากาศ) &nbsp;
-        <b>ซุปเปอร์:</b> Q (ต้องเกจเต็ม — แต่ละตัวมีท่าซุปเปอร์ไม่เหมือนกัน) &nbsp; <b>บล็อก:</b> เดินถอยหลัง (หันหลังให้คู่ต่อสู้)
+        <b>ซุปเปอร์:</b> Q (ต้องเกจเต็ม — แต่ละตัวมีท่าซุปเปอร์ไม่เหมือนกัน) &nbsp; <b>บล็อก:</b> เดินถอยหลัง (หันหลังให้คู่ต่อสู้)<br>
+        <b>โจมตีกลางอากาศ:</b> กระโดดแล้วกดปุ่มหมัด/เตะ (U/I/O/J/K/L) — ใช้ได้ 1 ครั้งต่อการกระโดด 1 เที่ยว
     </p>
 
     <!-- จอแพ้/ชนะ -->

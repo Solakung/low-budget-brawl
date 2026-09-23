@@ -88,6 +88,28 @@ input {
     color: #000000;
 }
 
+/* ------------------- เลือกสเตจ ------------------- */
+.stage-cards {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.stage-card {
+    width: 92px;
+    padding: 10px 6px;
+    font-size: 12px;
+    border-color: #00ccff;
+    line-height: 1.5;
+}
+
+.stage-card.active {
+    background-color: #00ccff;
+    color: #000000;
+}
+
 /* ------------------- HUD: หลอดเลือด HP + เกจพลัง ------------------- */
 #hud {
     position: fixed;

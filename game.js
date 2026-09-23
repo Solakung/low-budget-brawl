@@ -89,7 +89,11 @@ const sfx = {
         setTimeout(() => playBeep(659, 0.12, "square", 0.15), 130);
         setTimeout(() => playBeep(784, 0.22, "square", 0.15), 260);
     },
-    roundDraw() { playBeep(220, 0.3, "sawtooth", 0.1, 180); }
+    roundDraw() { playBeep(220, 0.3, "sawtooth", 0.1, 180); },
+    ko() {
+        playNoiseBurst(0.3, 0.32);
+        playBeep(160, 0.35, "square", 0.18, 40);
+    }
 };
 
 // เพลงพื้นหลัง: ลูปเบสไลน์สั้นๆ แบบ 8-bit วนซ้ำ (ประหยัดสเปค ไม่ต้องโหลดไฟล์เสียง)
@@ -161,6 +165,25 @@ function drawHitSparks() {
     ctx.globalAlpha = 1;
 }
 
+function drawKOOverlay(now) {
+    if (!koPending) return;
+    const elapsed = now - koFreezeAt;
+    const t = Math.min(1, elapsed / 180); // ป็อปเข้ามาเร็วๆ ในช่วง 180ms แรก
+    const scale = 0.5 + t * 0.6;
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2 - 30);
+    ctx.scale(scale, scale);
+    ctx.font = "bold 68px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "#ff3300";
+    ctx.lineWidth = 7;
+    ctx.strokeText("K.O.!", 0, 0);
+    ctx.fillStyle = "#ffff00";
+    ctx.fillText("K.O.!", 0, 0);
+    ctx.restore();
+}
+
 function drawComboPopups(now) {
     [p1, p2].forEach(p => {
         if (!p.comboPopupUntil || now > p.comboPopupUntil || (p.comboCount || 0) < 2) return;
@@ -218,12 +241,29 @@ function updateRoundPips() {
     if (p2Pips) p2Pips.innerText = "●".repeat(roundWins.p2) + "○".repeat(Math.max(0, 2 - roundWins.p2));
 }
 
+// --- 2c-2. KO Freeze-Frame: ตอนเลือดหมด หยุดจอนิ่งๆ สั้นๆ ก่อนเด้งไปจอผลแพ้ชนะ ---
+let koPending = false;
+let koWinner = null;
+let koFreezeAt = 0;
+const KO_FREEZE_MS = 650;
+
 function checkRoundEnd() {
-    if (gameOver) return;
+    if (gameOver || koPending) return;
     if (p1.hp <= 0 || p2.hp <= 0) {
         const winner = p1.hp <= 0 && p2.hp <= 0 ? null : (p1.hp <= 0 ? p2 : p1);
-        endRound(winner);
+        triggerKO(winner);
     }
+}
+
+function triggerKO(winner) {
+    koPending = true;
+    koWinner = winner;
+    koFreezeAt = Date.now();
+    triggerHitStop(KO_FREEZE_MS);
+    triggerShake(300, 10);
+    const loser = winner ? opponentOf(winner) : p1;
+    spawnHitSparks(loser.x + loser.width / 2, loser.y + loser.height * 0.4, "#ffdd00", 16);
+    sfx.ko();
 }
 
 function resetRoundState() {
@@ -234,6 +274,7 @@ function resetRoundState() {
     hitStopUntil = 0;
     shakeUntil = 0;
     gameOver = false;
+    koPending = false;
     startRoundTimer();
 }
 
@@ -273,6 +314,12 @@ const DASH_ATTACK_TIMING = { startup: 60, active: 140, recovery: 260 };
 const THROW_TIMING = { startup: 110, active: 90, recovery: 380 };
 const THROW_RANGE = 42;
 const SUPER_TIMING = { startup: 220, active: 220, recovery: 520 };
+// ท่าโจมตีกลางอากาศ: จังหวะไวกว่าท่าพื้นเล็กน้อย ใช้ได้แค่ 1 ครั้งต่อการกระโดด 1 ครั้ง
+const AIR_ATTACK_TIMING = {
+    light:  { startup: 60,  active: 110, recovery: 90 },
+    medium: { startup: 90,  active: 130, recovery: 130 },
+    heavy:  { startup: 120, active: 150, recovery: 170 }
+};
 const CANCEL_WINDOW_MS = 220; // หน้าต่างเวลาแทรกท่าพิเศษ/ซุปเปอร์หลังท่าเบา/กลางตีโดน (Cancel แบบ SF)
 
 // --- 2b. ตัวละครที่เลือกได้ แต่ละตัวมีท่าไม้ตายของตัวเอง ---
@@ -353,6 +400,100 @@ function selectCharacter(id) {
         el.classList.toggle("active", el.dataset.char === id);
     });
     document.getElementById("menu").style.display = "block";
+    const stageSel = document.getElementById("stage-select");
+    if (stageSel) stageSel.style.display = "block";
+}
+
+// --- 2d. สเตจ: วาดด้วย canvas ล้วนๆ ไม่ใช้รูปภาพ (ประหยัดสเปคตามคอนเซปต์เกม) ---
+const STAGES = [
+    { id: "alley", name: "ตรอกท้ายซอย", sky: ["#1a1a1a", "#000000"], floor: "#ff5500" },
+    { id: "dojo", name: "โดโจ", sky: ["#3a1a12", "#160a08"], floor: "#cc5522" },
+    { id: "neon", name: "นีออนซิตี้", sky: ["#0a0033", "#000011"], floor: "#00aacc" },
+    { id: "volcano", name: "ภูเขาไฟ", sky: ["#330000", "#110000"], floor: "#ff3300" },
+    { id: "space", name: "อวกาศ", sky: ["#000018", "#000000"], floor: "#5533aa" }
+];
+let selectedStageId = "alley";
+let currentStage = "alley";
+function selectStage(id) {
+    selectedStageId = id;
+    document.querySelectorAll(".stage-card").forEach(el => {
+        el.classList.toggle("active", el.dataset.stage === id);
+    });
+}
+
+function drawStage(stageId) {
+    const stage = STAGES.find(s => s.id === stageId) || STAGES[0];
+
+    // ท้องฟ้า/พื้นหลังไล่สี
+    const grad = ctx.createLinearGradient(0, 0, 0, 360);
+    grad.addColorStop(0, stage.sky[0]);
+    grad.addColorStop(1, stage.sky[1]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, 360);
+
+    // องค์ประกอบตกแต่งเฉพาะสเตจ (รูปทรงเรขาคณิตล้วนๆ)
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    if (stage.id === "alley") {
+        ctx.fillStyle = "#000000";
+        for (let i = 0; i < 6; i++) {
+            const bw = 60 + (i % 3) * 20;
+            ctx.fillRect(i * 140 - 20, 360 - (90 + (i % 4) * 25), bw, 200);
+        }
+        ctx.fillStyle = "#ff9900";
+        for (let i = 0; i < 10; i++) {
+            if ((i * 37) % 5 < 2) ctx.fillRect(20 + i * 78, 300 - (i % 3) * 30, 6, 6);
+        }
+    } else if (stage.id === "dojo") {
+        ctx.fillStyle = "#ff5533";
+        ctx.beginPath();
+        ctx.arc(canvas.width - 120, 110, 55, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#2a1208";
+        ctx.lineWidth = 6;
+        for (let i = 1; i < 5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * 170 - 30, 190);
+            ctx.lineTo(i * 170 - 30, 360);
+            ctx.stroke();
+        }
+    } else if (stage.id === "neon") {
+        ctx.fillStyle = "#150033";
+        for (let i = 0; i < 8; i++) {
+            const h = 80 + (i % 5) * 30;
+            ctx.fillRect(i * 105, 360 - h, 80, h);
+        }
+        ctx.fillStyle = "#00ffff";
+        for (let i = 0; i < 8; i++) {
+            for (let w = 0; w < 3; w++) {
+                if ((i + w) % 2 === 0) ctx.fillRect(i * 105 + 12 + w * 22, 360 - 60 - (i % 5) * 10, 6, 6);
+            }
+        }
+    } else if (stage.id === "volcano") {
+        ctx.fillStyle = "#1a0000";
+        ctx.beginPath();
+        ctx.moveTo(-20, 360); ctx.lineTo(180, 140); ctx.lineTo(360, 360); ctx.closePath(); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(canvas.width + 20, 360); ctx.lineTo(canvas.width - 190, 170); ctx.lineTo(canvas.width - 420, 360); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#ff8800";
+        ctx.beginPath(); ctx.arc(180, 140, 8, 0, Math.PI * 2); ctx.fill();
+    } else if (stage.id === "space") {
+        ctx.fillStyle = "#ffffff";
+        for (let i = 0; i < 36; i++) {
+            const sx = (i * 53) % canvas.width;
+            const sy = (i * 97) % 300;
+            ctx.fillRect(sx, sy, 2, 2);
+        }
+        ctx.fillStyle = "#aabbff";
+        ctx.beginPath(); ctx.arc(120, 90, 32, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // พื้น
+    ctx.fillStyle = stage.floor;
+    ctx.fillRect(0, 360, canvas.width, 40);
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    for (let i = 0; i < 20; i++) ctx.fillRect(i * 42, 360, 20, 40);
 }
 
 // สถานะปุ่มกด (เดิน/ย่อ/กระโดด เป็นแบบกดค้าง)
@@ -370,7 +511,8 @@ function freshPlayer(x, character, facing) {
         dashUntil: 0, dashCooldownUntil: 0, dashAttackWindowUntil: 0,
         lastTapLeft: 0, lastTapRight: 0, projectile: null, projectileCooldownUntil: 0,
         facing, legPhase: 0, prevX: x, isMoving: false,
-        comboCount: 0, comboPopupUntil: 0, comboPopupBorn: 0, armorHitsLeft: 0
+        comboCount: 0, comboPopupUntil: 0, comboPopupBorn: 0, armorHitsLeft: 0,
+        airActionUsed: false
     };
 }
 
@@ -490,10 +632,14 @@ function startGame(mode) {
         p1.character = selectedCharacterId;
         const others = CHARACTERS.filter(c => c.id !== selectedCharacterId);
         p2.character = others[Math.floor(Math.random() * others.length)].id;
+        currentStage = selectedStageId;
     } else if (mode === "host") {
         p1.character = selectedCharacterId;
+        currentStage = selectedStageId;
     } else if (mode === "guest") {
         p2.character = selectedCharacterId;
+        // ถ้ายังไม่ได้ค่าสเตจของ Host มาจาก Firebase ให้ใช้ที่เลือกไว้เองไปพลางๆก่อน
+        if (!currentStage) currentStage = selectedStageId;
     }
 
     const onscreen = document.getElementById("onscreen-controls");
@@ -520,10 +666,11 @@ function createRoom() {
     document.getElementById("displayRoomId").innerText = roomId;
     document.getElementById("room-info").style.display = "block";
 
-    db.ref("rooms/" + roomId).set({ p1: p1, p2: p2, status: "waiting" });
+    db.ref("rooms/" + roomId).set({ p1: p1, p2: p2, status: "waiting", stage: selectedStageId });
 
     db.ref("rooms/" + roomId).on("value", (snapshot) => {
         const data = snapshot.val();
+        if (data && data.stage) currentStage = data.stage;
         if (data && data.status === "playing" && gameMode !== "host") {
             startGame("host");
         }
@@ -546,6 +693,7 @@ function joinRoom() {
 
     db.ref("rooms/" + roomId).on("value", (snapshot) => {
         const data = snapshot.val();
+        if (data && data.stage) currentStage = data.stage;
         if (data && data.p1) p1 = data.p1;
     });
 
@@ -624,14 +772,28 @@ function attackWith(p, type, strength) {
     if (!p || gameOver) return;
     const now = Date.now();
     const inDash = p.state === "dash" && now < (p.dashAttackWindowUntil || 0);
-    if (!inDash && !canAct(p)) return;
+    // ลอยตัวอยู่ (กระโดด/ตกอิสระ) และยังไม่เคยใช้ท่ากลางอากาศในเที่ยวนี้ = โจมตีกลางอากาศได้
+    const airborne = !p.grounded && !p.action && !p.airActionUsed &&
+        (p.state === "jump" || p.state === "idle") && p.state !== "hitstun" && p.state !== "blockstun" && p.state !== "knockdown";
+    if (!inDash && !airborne && !canAct(p)) return;
 
     const char = getChar(p);
     const crouch = p.crouching;
     let def, timing;
     p.armorHitsLeft = 0; // เคลียร์เกราะเก่าทิ้งก่อนเริ่มท่าใหม่ (กันเกราะค้างจากท่าก่อนหน้า)
 
-    if (inDash) {
+    if (airborne) {
+        const st = STRENGTH[strength];
+        timing = AIR_ATTACK_TIMING[strength] || AIR_ATTACK_TIMING.light;
+        def = {
+            id: "air_" + type + "_" + strength, type, strength, isLow: false, knockdown: false, isAir: true,
+            dmg: Math.round((type === "kick" ? char.kickDmg : char.punchDmg) * st.dmg * 0.85),
+            range: (type === "kick" ? char.kickRange : char.punchRange) - 2,
+            hitstunMs: Math.round(st.hitstun * 0.8), blockstunMs: Math.round(st.blockstun * 0.8),
+            meterGain: strength === "heavy" ? 7 : (strength === "medium" ? 5 : 3)
+        };
+        p.airActionUsed = true;
+    } else if (inDash) {
         timing = DASH_ATTACK_TIMING;
         def = {
             id: "dashAttack", type, strength, isLow: false, knockdown: false,
@@ -1091,6 +1253,24 @@ function endRound(winner) {
     gameOver = true;
     stopRoundTimer();
 
+    // Juice: ค้างท่าชนะ/ท่าแพ้ไว้ให้เห็นก่อนจอผลจะเด้งขึ้นมาทับ
+    if (winner) {
+        winner.state = "victory";
+        winner.action = null;
+        const loser = opponentOf(winner);
+        loser.state = "knockdown";
+        loser.grounded = true;
+        loser.vy = 0;
+        loser.action = null;
+    } else {
+        [p1, p2].forEach(p => {
+            p.state = "knockdown";
+            p.grounded = true;
+            p.vy = 0;
+            p.action = null;
+        });
+    }
+
     if (winner) roundWins[winner === p1 ? "p1" : "p2"] += 1;
     updateRoundPips();
 
@@ -1120,7 +1300,10 @@ function endRound(winner) {
         sfx.roundDraw();
     }
 
-    document.getElementById("round-over").style.display = "flex";
+    // หน่วงเวลาก่อนโชว์จอผลแพ้ชนะ ให้ทันเห็นท่าชนะ/ท่าล้มก่อน
+    setTimeout(() => {
+        document.getElementById("round-over").style.display = "flex";
+    }, 550);
 }
 
 // --- 6. วาดตัวละครแบบมีรูปร่าง (หัว-ลำตัว-แขน-ขา) สไตล์ Street Fighter ---
@@ -1161,6 +1344,7 @@ function drawFighter(p, opp) {
     const isDashAttack = p.state === "attack" && a && (a.id === "dashAttack" || a.id === "haymaker" || a.id === "iaido" || a.id === "swordLunge" || a.id === "flurry");
     const isThrowing = p.state === "throw";
     const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super" || a.id === "barrage");
+    const isVictory = p.state === "victory";
 
     ctx.save();
     ctx.strokeStyle = flashing ? "#ffffff" : char.color;
@@ -1279,6 +1463,30 @@ function drawFighter(p, opp) {
     } else if (crouching) {
         drawLimb(shoulderX, shoulderY, f * 5, shoulderY + 8, f * 3, hipY, 6);
         drawLimb(shoulderX, shoulderY, -f * 5, shoulderY + 8, -f * 3, hipY, 6);
+    } else if (isVictory) {
+        // ท่าชนะเฉพาะตัวละคร: นักดาบชักดาบชูฟ้า ส่วนตัวอื่นชูหมัดฉลอง
+        if (char.hasSword) {
+            drawLimb(shoulderX, shoulderY, f * 10, shoulderY - 20, f * 6, shoulderY - 46, 7);
+            ctx.strokeStyle = flashing ? "#ffffff" : char.accent;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(shoulderX + f * 6, shoulderY - 46);
+            ctx.lineTo(shoulderX + f * 2, shoulderY - 82);
+            ctx.stroke();
+        } else if (char.hasCommandGrab) {
+            // นักซัด: ยกทั้งสองแขนโชว์กล้าม
+            drawLimb(shoulderX, shoulderY, f * 10, shoulderY - 8, f * 14, shoulderY - 30, 8);
+            drawLimb(shoulderX, shoulderY, -f * 10, shoulderY - 8, -f * 14, shoulderY - 30, 8);
+        } else {
+            drawLimb(shoulderX, shoulderY, f * 8, shoulderY - 18, f * 4, shoulderY - 48, 7);
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(shoulderX + f * 4, shoulderY - 48, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (!char.hasCommandGrab) {
+            drawLimb(shoulderX, shoulderY, -f * 6, shoulderY + 10, -f * 3, hipY, 6);
+        }
     } else {
         const armSwing = Math.sin(p.legPhase + Math.PI) * 6;
         drawLimb(shoulderX, shoulderY, armSwing, shoulderY + 10, armSwing * 0.6, hipY + 2, 6);
@@ -1312,6 +1520,7 @@ function applyPhysics(p) {
             p.grounded = true;
             if (p.state === "jump") p.state = "idle";
             p.vx = 0;
+            p.airActionUsed = false; // แตะพื้นแล้ว ใช้ท่าโจมตีกลางอากาศได้ใหม่ในเที่ยวกระโดดถัดไป
         }
     } else {
         p.grounded = false;
@@ -1379,8 +1588,7 @@ function render(now) {
         ctx.translate(dx, dy);
     }
 
-    ctx.fillStyle = "#ff5500";
-    ctx.fillRect(0, 360, canvas.width, 40);
+    drawStage(currentStage);
 
     drawProjectile(p1);
     drawProjectile(p2);
@@ -1388,12 +1596,19 @@ function render(now) {
     drawFighter(p2, p1);
     drawHitSparks();
     drawComboPopups(now);
+    drawKOOverlay(now);
 
     ctx.restore();
 }
 
 function update() {
     const now = Date.now();
+
+    // จอนิ่งค้างไว้ระหว่าง KO แล้วค่อยเด้งไปจอผลแพ้ชนะ (ทำงานนอก gate ของ hitStop เพื่อให้ freeze จริงๆ)
+    if (koPending && now - koFreezeAt >= KO_FREEZE_MS) {
+        koPending = false;
+        endRound(koWinner);
+    }
 
     if (!gameOver && now >= hitStopUntil) {
         updateFacing(p1, p2);
