@@ -90,6 +90,10 @@ const sfx = {
         setTimeout(() => playBeep(784, 0.22, "square", 0.15), 260);
     },
     roundDraw() { playBeep(220, 0.3, "sawtooth", 0.1, 180); },
+    parry() {
+        playBeep(880, 0.05, "square", 0.16, 1300);
+        playBeep(440, 0.09, "triangle", 0.1, 1600);
+    },
     ko() {
         playNoiseBurst(0.3, 0.32);
         playBeep(160, 0.35, "square", 0.18, 40);
@@ -321,6 +325,9 @@ const AIR_ATTACK_TIMING = {
     heavy:  { startup: 120, active: 150, recovery: 170 }
 };
 const CANCEL_WINDOW_MS = 220; // หน้าต่างเวลาแทรกท่าพิเศษ/ซุปเปอร์หลังท่าเบา/กลางตีโดน (Cancel แบบ SF)
+const PARRY_WINDOW_MS = 150;  // กดบล็อกภายในกี่ ms แรกถึงนับเป็น Parry (สวนฟรี)
+const PARRY_PUNISH_MS = 420;  // ผู้โจมตีเสียหลักนานแค่ไหนหลังโดน Parry
+const WAKEUP_WINDOW_MS = 280; // ช่วงเวลาก่อนลุกที่รับอินพุตเลือกท่าลุก
 
 // --- 2b. ตัวละครที่เลือกได้ แต่ละตัวมีท่าไม้ตายของตัวเอง ---
 const CHARACTERS = [
@@ -403,6 +410,96 @@ function selectCharacter(id) {
     const stageSel = document.getElementById("stage-select");
     if (stageSel) stageSel.style.display = "block";
 }
+
+// --- 2d-2. Preview ตัวละครหน้าเลือกตัว: ขยับหายใจ/โยกตัวเบาๆ แทนที่จะเป็นแค่ไอคอนนิ่งๆ ---
+const previewCanvas = document.getElementById("charPreviewCanvas");
+const pctx = previewCanvas ? previewCanvas.getContext("2d") : null;
+let previewT = 0;
+
+function pLimb(x, y, midDx, midDy, endDx, endDy, width) {
+    pctx.lineWidth = width;
+    pctx.beginPath();
+    pctx.moveTo(x, y);
+    pctx.lineTo(x + midDx, midDy);
+    pctx.lineTo(x + endDx, endDy);
+    pctx.stroke();
+}
+
+function drawCharPreview(charId) {
+    if (!pctx) return;
+    const char = CHARACTERS.find(c => c.id === charId) || CHARACTERS[0];
+    pctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+    // วงแสงพื้นหลังสีธีมตัวละครจางๆ
+    pctx.fillStyle = char.color;
+    pctx.globalAlpha = 0.12;
+    pctx.beginPath();
+    pctx.arc(previewCanvas.width / 2, previewCanvas.height / 2 + 6, 58, 0, Math.PI * 2);
+    pctx.fill();
+    pctx.globalAlpha = 1;
+
+    const cx = previewCanvas.width / 2;
+    const feetY = previewCanvas.height - 18;
+    const breathe = Math.sin(previewT) * 3;
+    const sway = Math.sin(previewT * 0.6) * 4;
+
+    const hipY = feetY - 46;
+    const shoulderY = hipY - 34 - breathe * 0.3;
+    const headR = 11;
+    const headY = shoulderY - headR - 2;
+
+    pctx.strokeStyle = char.color;
+    pctx.fillStyle = char.color;
+    pctx.lineCap = "round";
+
+    // ขา
+    pLimb(cx, hipY, sway * 0.6, hipY + 22, sway * 0.4, feetY, 8);
+    pLimb(cx, hipY, -sway * 0.6, hipY + 22, -sway * 0.4, feetY, 8);
+
+    // ลำตัว
+    pctx.lineWidth = 10;
+    pctx.beginPath();
+    pctx.moveTo(cx, hipY);
+    pctx.lineTo(cx + sway * 0.3, shoulderY);
+    pctx.stroke();
+
+    // ผ้าคาดหัว
+    pctx.strokeStyle = char.accent;
+    pctx.lineWidth = 3;
+    pctx.beginPath();
+    pctx.moveTo(cx - headR + sway * 0.3, headY - 2);
+    pctx.lineTo(cx + headR + sway * 0.3, headY - 2);
+    pctx.stroke();
+
+    // หัว
+    pctx.fillStyle = char.color;
+    pctx.beginPath();
+    pctx.arc(cx + sway * 0.3, headY, headR, 0, Math.PI * 2);
+    pctx.fill();
+
+    // แขนโยกหายใจ
+    const armSwing = Math.sin(previewT * 0.8 + Math.PI) * 5;
+    pctx.strokeStyle = char.color;
+    pLimb(cx, shoulderY, armSwing, shoulderY + 16, armSwing * 0.6, hipY + 4, 8);
+    pLimb(cx, shoulderY, -armSwing, shoulderY + 16, -armSwing * 0.6, hipY + 4, 8);
+
+    // ดาบสำหรับตัวละครที่มีดาบ
+    if (char.hasSword) {
+        pctx.strokeStyle = char.accent;
+        pctx.lineWidth = 3;
+        pctx.beginPath();
+        pctx.moveTo(cx + 10, hipY + 4);
+        pctx.lineTo(cx + 27, hipY - 32);
+        pctx.stroke();
+    }
+}
+
+function previewLoop() {
+    previewT += 0.06;
+    drawCharPreview(selectedCharacterId);
+    if (!gameMode) requestAnimationFrame(previewLoop);
+}
+previewLoop();
 
 // --- 2d. สเตจ: วาดด้วย canvas ล้วนๆ ไม่ใช้รูปภาพ (ประหยัดสเปคตามคอนเซปต์เกม) ---
 const STAGES = [
@@ -505,7 +602,8 @@ function freshPlayer(x, character, facing) {
     return {
         x, y: GROUND_Y, width: 30, height: 60, character, hp: maxHp, maxHp, super: 0,
         vx: 0, vy: 0, grounded: true, crouching: false,
-        holdingBack: false, holdingForward: false,
+        holdingBack: false, holdingForward: false, wasHoldingBack: false, blockStartAt: 0,
+        parryFlashUntil: 0, wakeupChoice: null,
         state: "idle", action: null, actionEndAt: 0,
         stunUntil: 0, invulnUntil: 0, lastHit: 0, hitFlashUntil: 0,
         dashUntil: 0, dashCooldownUntil: 0, dashAttackWindowUntil: 0,
@@ -758,9 +856,35 @@ function updateAction(p) {
 }
 
 function updateStun(p) {
-    if ((p.state === "hitstun" || p.state === "blockstun" || p.state === "knockdown") && Date.now() > (p.stunUntil || 0)) {
+    const now = Date.now();
+    if ((p.state === "hitstun" || p.state === "blockstun") && now > (p.stunUntil || 0)) {
+        p.state = "idle";
+    } else if (p.state === "knockdown" && now > (p.stunUntil || 0)) {
+        // ลุกจากพื้น: เลือกท่าลุกตาม wakeupChoice ที่รับอินพุตไว้ระหว่างช่วงท้ายของการล้ม
+        const choice = p.wakeupChoice;
+        p.wakeupChoice = null;
+        if (choice === "roll") {
+            // ลุกกลิ้งหนี: สไลด์ถอยออกจากคู่ต่อสู้ แลกกับอินวัลน์สั้นๆ ระหว่างกลิ้ง
+            p.x -= p.facing * 46;
+            p.invulnUntil = now + 260;
+            sfx.dash();
+        } else if (choice === "reversal") {
+            // ลุกสวนทันที: อินวัลน์สั้นๆ ให้แทรกท่าโจมตีได้ทันทีที่ลุกขึ้น
+            p.invulnUntil = now + 160;
+            sfx.special();
+        }
         p.state = "idle";
     }
+}
+
+// รับอินพุตเลือกท่าลุก (เฉพาะผู้เล่นในเครื่องนี้) ในช่วงท้ายๆ ก่อนจะลุกจากพื้นจริง
+function handleWakeupInput(p) {
+    if (!p || p.state !== "knockdown" || p.wakeupChoice) return;
+    const now = Date.now();
+    const timeLeft = (p.stunUntil || 0) - now;
+    if (timeLeft <= 0 || timeLeft > WAKEUP_WINDOW_MS) return;
+    const rollKey = p.facing === 1 ? keys.a : keys.d; // กดถอยหนีออกจากคู่ต่อสู้
+    if (rollKey) p.wakeupChoice = "roll";
 }
 
 function gainMeter(p, amt) {
@@ -771,6 +895,16 @@ function gainMeter(p, amt) {
 function attackWith(p, type, strength) {
     if (!p || gameOver) return;
     const now = Date.now();
+
+    // กดปุ่มโจมตีระหว่างช่วงท้ายของการล้ม = เลือกลุกแบบ "สวนทันที" (ยังลุกไม่ได้ตอนนี้ แค่บันทึกท่าลุกไว้)
+    if (p.state === "knockdown") {
+        if (!p.wakeupChoice) {
+            const timeLeft = (p.stunUntil || 0) - now;
+            if (timeLeft > 0 && timeLeft <= WAKEUP_WINDOW_MS) p.wakeupChoice = "reversal";
+        }
+        return;
+    }
+
     const inDash = p.state === "dash" && now < (p.dashAttackWindowUntil || 0);
     // ลอยตัวอยู่ (กระโดด/ตกอิสระ) และยังไม่เคยใช้ท่ากลางอากาศในเที่ยวนี้ = โจมตีกลางอากาศได้
     const airborne = !p.grounded && !p.action && !p.airActionUsed &&
@@ -1009,7 +1143,19 @@ function startDash(p, dir) {
 // --- 5a. ลอจิกของ Bot ---
 function runBotAI() {
     const p = p2, opp = p1;
-    if (p.state === "hitstun" || p.state === "blockstun" || p.state === "knockdown" || p.state === "throw") {
+    if (p.state === "hitstun" || p.state === "blockstun" || p.state === "throw") {
+        return;
+    }
+    if (p.state === "knockdown") {
+        // บอทสุ่มเลือกท่าลุกเหมือนผู้เล่นจริง ให้ดูมีชีวิตชีวาไม่ลุกแบบเดิมทุกครั้ง
+        if (!p.wakeupChoice) {
+            const timeLeft = (p.stunUntil || 0) - Date.now();
+            if (timeLeft > 0 && timeLeft <= WAKEUP_WINDOW_MS) {
+                const roll = Math.random();
+                if (roll < 0.35) p.wakeupChoice = "roll";
+                else if (roll < 0.55) p.wakeupChoice = "reversal";
+            }
+        }
         return;
     }
     const char = getChar(p);
@@ -1119,6 +1265,23 @@ function resolveAttackAgainst(attacker, defender) {
     const blocked = !isThrow && (isBlocking(defender) || stillBlockingString) && (!low || defender.crouching);
 
     if (blocked) {
+        const isParry = now - (defender.blockStartAt || 0) <= PARRY_WINDOW_MS;
+        if (isParry) {
+            // Parry: กดบล็อกแม่นจังหวะ ไม่โดนดาเมจเลย แถมผู้โจมตีเสียหลักให้สวนกลับได้ฟรี
+            defender.blockStartAt = 0; // กันสวนซ้ำถ้าท่านั้นมีหลายฮิต
+            defender.parryFlashUntil = now + 280;
+            gainMeter(defender, 20);
+            attacker.state = "hitstun";
+            attacker.stunUntil = now + PARRY_PUNISH_MS;
+            attacker.action = null;
+            attacker.hitFlashUntil = now + 120;
+            attacker.x -= attacker.facing * 6;
+            spawnHitSparks(defender.x + defender.width / 2 + attacker.facing * 10, defender.y + defender.height * 0.4, "#00ffff", 14);
+            triggerHitStop(90);
+            triggerShake(140, 4);
+            sfx.parry();
+            return;
+        }
         const dmg = Math.max(1, Math.round(attacker.action.dmg * 0.12));
         defender.hp -= dmg;
         defender.state = "blockstun";
@@ -1345,11 +1508,14 @@ function drawFighter(p, opp) {
     const isThrowing = p.state === "throw";
     const isSpecial = p.state === "attack" && a && (a.id === "projectile" || a.id === "antiair" || a.id === "super" || a.id === "barrage");
     const isVictory = p.state === "victory";
+    const parrying = Date.now() < (p.parryFlashUntil || 0);
+    const invulnActive = Date.now() < (p.invulnUntil || 0);
 
     ctx.save();
-    ctx.strokeStyle = flashing ? "#ffffff" : char.color;
-    ctx.fillStyle = flashing ? "#ffffff" : char.color;
+    ctx.strokeStyle = flashing ? "#ffffff" : (parrying ? "#00ffff" : char.color);
+    ctx.fillStyle = flashing ? "#ffffff" : (parrying ? "#00ffff" : char.color);
     ctx.lineCap = "round";
+    if (invulnActive) ctx.globalAlpha = 0.45 + 0.35 * Math.sin(Date.now() / 45); // ระยิบระยับตอนอมตะชั่วคราว (parry punish window/wake-up/ท่าพิเศษ)
 
     if (knockedDown) {
         // ท่านอนล้มกับพื้น
@@ -1493,6 +1659,18 @@ function drawFighter(p, opp) {
         drawLimb(shoulderX, shoulderY, -armSwing, shoulderY + 10, -armSwing * 0.6, hipY + 2, 6);
     }
 
+    if (parrying) {
+        // วงแหวนฟ้าเรืองแสงตอน Parry สำเร็จ
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = "#00ffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, shoulderY, 32, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
     ctx.restore();
 }
 
@@ -1542,6 +1720,10 @@ function handleLocalMovement(p) {
 
     p.holdingBack = (keys.a && p.facing === 1) || (keys.d && p.facing === -1);
     p.holdingForward = (keys.d && p.facing === 1) || (keys.a && p.facing === -1);
+
+    // จับจังหวะเริ่มกดบล็อก (ขอบขาขึ้นของ holdingBack) ไว้ตั้งเวลาหน้าต่าง Parry
+    if (p.holdingBack && !p.wasHoldingBack) p.blockStartAt = now;
+    p.wasHoldingBack = p.holdingBack;
 
     const freeToMove = p.state === "idle" || p.state === "walk" || p.state === "crouch";
 
@@ -1616,6 +1798,7 @@ function update() {
 
         const myPlayer = localPlayer();
         handleLocalMovement(myPlayer);
+        handleWakeupInput(myPlayer);
 
         updateAction(p1); updateAction(p2);
         updateStun(p1); updateStun(p2);
